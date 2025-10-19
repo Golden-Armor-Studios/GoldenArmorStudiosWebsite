@@ -61,8 +61,9 @@ Fans can donate directly through the site. Payments are processed with Stripe an
 - Run `git lfs install` once per environment before committing.
 
 ## Stay Connected
+- Website: [goldenarmorstudio.art](https://goldenarmorstudio.art)
 - GitHub: [Golden Armor Studios](https://github.com/Golden-Armor-Studios)
-- Discord: Join the guild conversation and playtests.
+- Discord: [Join the guild conversation](https://discord.gg)
 - Email: [hello@goldenarmorstudio.com](mailto:hello@goldenarmorstudio.com)
 
 Thanks for exploring Golden Armor Studios. Suit up, bring your imagination, and help us build the next adventure.
