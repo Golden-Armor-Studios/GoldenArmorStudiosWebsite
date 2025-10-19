@@ -6,6 +6,7 @@ import ColorIqOverviewView from '../views/ColorIqOverviewView.vue'
 import DiscordInviteView from '../views/DiscordInviteView.vue'
 import JoinTeamView from '../views/JoinTeamView.vue'
 import DevsView from '../views/DevsView.vue'
+import NotFoundView from '../views/NotFoundView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import store from '../store'
 
@@ -62,6 +63,11 @@ const routes = [
       requiresAuth: true,
       requiresGroup: 'admin'
     }
+  },
+  {
+    path: '/:pathMatch(.*)*',
+    name: 'NotFound',
+    component: NotFoundView
   }
 ]
 

@@ -10,5 +10,5 @@ Checking for npm/bin/npm-cli install at /Users/robloxhero/.cache/firebase/tools/
 Checking for npm/bin/npm-cli install at /Users/robloxhero/.cache/firebase/tools/node_modules/npm/bin/npm-cli
 Checking for npm/bin/npm-cli install at /snapshot/firepit/node_modules/npm/bin/npm-cli
 Found npm/bin/npm-cli install.
-ShellJSInternalError: EPERM: operation not permitted, chmod '/Users/robloxhero/.cache/firebase/runtime/shell'
-Error: EPERM: operation not permitted, open '/Users/robloxhero/.cache/firebase/runtime/shell'
+ShellJSInternalError: EPERM: operation not permitted, mkdir '/Users/robloxhero/.cache/firebase/runtime'
+Error: ENOENT: no such file or directory, open '/Users/robloxhero/.cache/firebase/runtime/shell'

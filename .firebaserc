@@ -2,14 +2,5 @@
   "projects": {
     "default": "goldenarmorstudios"
   },
-  "targets": {
-    "goldenarmorstudios": {
-      "hosting": {
-        "api": [
-          "goldenarmorstudios"
-        ]
-      }
-    }
-  },
   "etags": {}
 }
