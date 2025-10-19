@@ -1,0 +1,2 @@
+creative/** filter=lfs diff=lfs merge=lfs -text
+src/assets/**/*.{png,jpg,jpeg,gif,webp,avif,svg,bmp} filter=lfs diff=lfs merge=lfs -text

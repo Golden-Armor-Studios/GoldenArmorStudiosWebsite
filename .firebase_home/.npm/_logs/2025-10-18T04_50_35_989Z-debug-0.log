@@ -1,0 +1,20 @@
+0 verbose cli /usr/local/Cellar/node@20/20.19.5/bin/node /usr/local/Cellar/node@20/20.19.5/lib/node_modules/npm/bin/npm-cli.js
+1 info using npm@10.8.2
+2 info using node@v20.19.5
+3 silly config load:file:/usr/local/Cellar/node@20/20.19.5/lib/node_modules/npm/npmrc
+4 silly config load:file:/Users/robloxhero/golden-armor-studios-website/.npmrc
+5 silly config load:file:/Users/robloxhero/golden-armor-studios-website/.firebase_home/.npmrc
+6 silly config load:file:/usr/local/etc/npmrc
+7 verbose title npm exec firebase-tools init functions --help
+8 verbose argv "exec" "--" "firebase-tools" "init" "functions" "--help"
+9 verbose logfile logs-max:10 dir:/Users/robloxhero/golden-armor-studios-website/.firebase_home/.npm/_logs/2025-10-18T04_50_35_989Z-
+10 verbose logfile /Users/robloxhero/golden-armor-studios-website/.firebase_home/.npm/_logs/2025-10-18T04_50_35_989Z-debug-0.log
+11 silly logfile done cleaning log files
+12 http fetch GET https://registry.npmjs.org/npm attempt 1 failed with ENOTFOUND
+13 silly packumentCache heap:4345298944 maxSize:1086324736 maxEntrySize:543162368
+14 verbose cwd /Users/robloxhero/golden-armor-studios-website
+15 verbose os Darwin 24.6.0
+16 verbose node v20.19.5
+17 verbose npm  v10.8.2
+18 verbose exit 0
+19 info ok

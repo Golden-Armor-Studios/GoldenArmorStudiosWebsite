@@ -1,10 +1,53 @@
 {
-  "hosting": {
-    "public": "dist",
-    "ignore": [
-      "firebase.json",
-      "**/.*",
-      "**/node_modules/**"
-    ]
-  }
+  "functions": {
+    "source": "functions"
+  },
+  "hosting": [
+    {
+      "public": "dist",
+      "ignore": [
+        "firebase.json",
+        "**/.*",
+        "**/node_modules/**"
+      ]
+    },
+    {
+      "target": "api",
+      "public": "dist",
+      "rewrites": [
+        {
+          "source": "/submitTeamApplication",
+          "function": "submitTeamApplication"
+        },
+        {
+          "source": "/createStripePaymentIntent",
+          "function": "createStripePaymentIntent"
+        },
+        {
+          "source": "/createStripeSetupIntent",
+          "function": "createStripeSetupIntent"
+        },
+        {
+          "source": "/recordDonation",
+          "function": "recordDonation"
+        },
+        {
+          "source": "/getUserTransactions",
+          "function": "getUserTransactions"
+        },
+        {
+          "source": "/listUsers",
+          "function": "listUsers"
+        },
+        {
+          "source": "/updateUserGroups",
+          "function": "updateUserGroups"
+        },
+        {
+          "source": "/deleteUserAccount",
+          "function": "deleteUserAccount"
+        }
+      ]
+    }
+  ]
 }
