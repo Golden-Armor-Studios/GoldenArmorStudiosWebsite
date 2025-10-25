@@ -26,7 +26,8 @@ module.exports = {
 	externalsPresets: { node: true },
 	externals: {
 		"firebase-functions": "commonjs firebase-functions",
-		"firebase-admin": "commonjs firebase-admin"
+		"firebase-admin": "commonjs firebase-admin",
+		"stripe": "commonjs stripe"
 	},
 	optimization: {
 		minimize: false

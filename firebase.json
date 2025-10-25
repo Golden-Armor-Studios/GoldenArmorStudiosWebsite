@@ -27,6 +27,10 @@
         "function": "recordDonation"
       },
       {
+        "source": "/generateCustomAuthToken",
+        "function": "generateCustomAuthToken"
+      },
+      {
         "source": "/getUserTransactions",
         "function": "getUserTransactions"
       },
@@ -41,6 +45,14 @@
       {
         "source": "/deleteUserAccount",
         "function": "deleteUserAccount"
+      },
+      {
+        "source": "/getDeveloperProfiles",
+        "function": "getDeveloperProfiles"
+      },
+      {
+        "source": "/getDonorProfiles",
+        "function": "getDonorProfiles"
       },
       {
         "source": "**",

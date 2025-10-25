@@ -73,8 +73,9 @@ onBeforeUnmount(() => {
 		background: #1f2329;
 		border-radius: 16px;
 		box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
-		display: inline-flex;
-		width: 100%;
+		display: flex;
+		justify-content: center;
+		width: min(100%, 400px);
 		box-sizing: border-box;
 	}
 

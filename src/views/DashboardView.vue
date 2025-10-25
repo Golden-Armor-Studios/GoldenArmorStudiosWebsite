@@ -1,5 +1,8 @@
 <template>
 	<div class="dashboard-wrapper">
+		<video ref="videoRef" class="background-video" autoplay muted loop playsinline>
+			<source src="/website background - dashboard.mp4" type="video/mp4" />
+		</video>
 		<header class="dashboard-header">
 			<h1 class="homepage-title">Welcome back, {{ displayName }}!</h1>
 			<p class="homepage-p subtitle">
@@ -10,6 +13,8 @@
 					<span v-if="isDonor">Donor Supporter</span>
 					<span v-else>Member</span>
 				</span>
+				<span v-if="isDeveloper" class="status-chip developer">Developer</span>
+				<span v-if="isAdmin" class="status-chip admin">Admin</span>
 			</div>
 		</header>
 
@@ -59,31 +64,128 @@
 			</RouterLink>
 		</section>
 
-		<section class="card-grid">
-			<div class="card card-standard donation-summary">
-				<div class="summary-header">
-					<h2 class="card-title">Total Donations</h2>
-					<button class="print-button" type="button" @click="printTransactions" :disabled="isFetchingTransactions || transactions.length === 0">
-						Print transactions to date
-					</button>
+	<section class="card-grid wide-cards">
+		<div class="card card-standard donation-summary">
+			<div class="summary-header">
+				<h2 class="card-title">Support Overview</h2>
+				<button class="print-button" type="button" @click="printTransactions" :disabled="isFetchingTransactions || transactions.length === 0">
+					Print transactions to date
+				</button>
 				</div>
-				<p class="card-body" v-if="isFetchingTransactions">Loading your donation history…</p>
-		<div v-else>
-			<p class="total-amount">{{ formattedTotal }}</p>
-			<p class="card-body muted" v-if="!transactions.length">No donations recorded yet. Thank you for your support!</p>
-		</div>
+				<p class="card-body muted" v-if="isFetchingTransactions">Loading your donation history…</p>
+				<div v-else>
+					<p class="total-amount">{{ formattedTotal }}</p>
+					<p class="card-body muted" v-if="!transactions.length">No donations recorded yet. Thank you for your support!</p>
+					<ul class="mini-stats" v-else>
+						<li>
+							<span class="stat-label">Transactions</span>
+							<span class="stat-value">{{ transactions.length }}</span>
+						</li>
+						<li>
+							<span class="stat-label">Currency</span>
+							<span class="stat-value text-upper">{{ baseCurrency }}</span>
+						</li>
+					</ul>
+				</div>
 			</div>
-		</section>
-	</div>
+
+			<div class="card card-standard donation-history">
+				<h2 class="card-title">Recent Donations</h2>
+				<p class="card-body muted" v-if="isFetchingTransactions">Loading transactions…</p>
+				<p class="card-body muted" v-else-if="!transactions.length">No donation activity yet. Once supporters contribute, you’ll see the timeline here.</p>
+				<div v-else class="table-scroll">
+					<table class="transactions-table">
+						<thead>
+							<tr>
+								<th>Date</th>
+								<th>Amount</th>
+								<th>Payment ID</th>
+							</tr>
+						</thead>
+						<tbody>
+							<tr v-for="txn in transactions.slice(0, 6)" :key="txn.paymentIntentId">
+								<td>{{ formatTimestamp(txn.createdAtMs ?? txn.createdAt) }}</td>
+								<td>{{ formatAmount(txn.amount, txn.currency) }}</td>
+								<td class="payment-id">{{ txn.paymentIntentId }}</td>
+							</tr>
+						</tbody>
+					</table>
+					<p class="card-body extra-note" v-if="transactions.length > 6">
+						Showcasing the latest 6 entries. Export to see everything.
+					</p>
+				</div>
+		</div>
+	</section>
+
+	<section class="card-grid">
+		<div class="card card-standard support-card">
+			<h2 class="card-title">Support Future Worlds</h2>
+			<p class="card-body">
+				Player-backed development keeps experimental ideas alive. Donate to unlock supporter perks and help us brave new quests.
+			</p>
+			<form class="donation-form" @submit.prevent="handleDonate">
+				<div class="field-row">
+					<label for="donationAmountDashboard">Choose an amount</label>
+					<select
+						id="donationAmountDashboard"
+						v-model="selectedAmount"
+						:disabled="isProcessing || !isAuthenticated"
+					>
+						<option v-for="amount in presetAmounts" :key="amount" :value="amount">
+							${{ amount }}
+						</option>
+						<option value="custom">Custom amount</option>
+					</select>
+				</div>
+
+				<div v-if="selectedAmount === 'custom'" class="field-row">
+					<label for="customAmountDashboard">Enter custom amount</label>
+					<input
+						id="customAmountDashboard"
+						v-model="customAmount"
+						type="number"
+						min="1"
+						step="1"
+						placeholder="25"
+						:disabled="isProcessing || !isAuthenticated"
+					>
+				</div>
+
+				<div class="field-row">
+					<label>Card details</label>
+					<div ref="cardElementRef" class="card-element" :class="{ disabled: !isAuthenticated }"></div>
+				</div>
+
+				<p v-if="donationMessage" :class="{ 'error-message': donationError, 'success-message': !donationError }">
+					{{ donationMessage }}
+				</p>
+
+				<button
+					type="submit"
+					class="donate-button"
+					:disabled="isDonateDisabled"
+				>
+					<span v-if="isProcessing">Processing…</span>
+					<span v-else-if="!isAuthenticated">Sign in to donate</span>
+					<span v-else>Donate {{ formattedAmount }}</span>
+				</button>
+				<p v-if="!isAuthenticated" class="signin-reminder">
+					Sign in with GitHub from the navigation menu to support the studio.
+				</p>
+			</form>
+		</div>
+	</section>
+</div>
 </template>
 
 <script setup>
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useStore } from 'vuex'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/firebase'
 import { useToast } from 'vue-toastification'
+import { loadStripe } from '@stripe/stripe-js'
 
 const store = useStore()
 const toast = useToast()
@@ -91,23 +193,72 @@ const profile = computed(() => store.state.user.profile)
 const groups = computed(() => store.getters['user/userGroups'] || [])
 const displayName = computed(() => profile.value?.displayName || profile.value?.email || 'Member')
 const isAdmin = computed(() => groups.value.includes('admin'))
+const isDeveloper = computed(() => groups.value.includes('developer'))
 const isDonor = computed(() => groups.value.includes('donor'))
 const isAuthenticated = computed(() => store.getters['user/isAuthenticated'])
 
+const videoRef = ref(null)
 const transactions = ref([])
 const totalAmount = ref(0)
 const baseCurrency = ref('usd')
 const isFetchingTransactions = ref(false)
+
+const publishableKey = 'pk_live_51SJccOKYzIVp9MDU493vDCMnQbSGmnrhPAa6YXR0PzxoqRs5YX8AWrv8zvAmBHfKBc7tTT6MQKbNDZAIQcA8bgV900hbt7WfPc'
+const presetAmounts = [10, 20, 50, 100]
+const selectedAmount = ref(presetAmounts[0])
+const customAmount = ref('')
+const donationMessage = ref('')
+const donationError = ref(false)
+const isProcessing = ref(false)
+const stripeInstance = ref(null)
+const elements = ref(null)
+const cardElementRef = ref(null)
+const cardReady = ref(false)
+let cardElement
 
 const formattedTotal = computed(() => {
 	const dollars = totalAmount.value / 100
 	return new Intl.NumberFormat('en-US', { style: 'currency', currency: baseCurrency.value.toUpperCase() }).format(dollars || 0)
 })
 
+const resolvedAmount = computed(() => {
+	if (selectedAmount.value === 'custom') {
+		const parsed = Number(customAmount.value)
+		return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+	}
+	return selectedAmount.value
+})
+
+const formattedAmount = computed(() => {
+	if (!resolvedAmount.value) {
+		return ''
+	}
+	return `$${resolvedAmount.value}`
+})
+
+const isDonateDisabled = computed(() => {
+	if (!isAuthenticated.value) {
+		return true
+	}
+	if (isProcessing.value || !cardReady.value) {
+		return true
+	}
+	return !resolvedAmount.value
+})
+
+const resetDonationMessage = () => {
+	donationMessage.value = ''
+	donationError.value = false
+}
+
 const loadTransactions = async () => {
 	if (!isAuthenticated.value) {
 		transactions.value = []
 		totalAmount.value = 0
+		resetDonationMessage()
+		if (cardElement) {
+			cardElement.clear()
+		}
 		return
 	}
 
@@ -144,6 +295,79 @@ const loadTransactions = async () => {
 		toast.error(error?.message ?? 'Unable to load donation history.')
 	} finally {
 		isFetchingTransactions.value = false
+	}
+}
+
+const handleDonate = async () => {
+	resetDonationMessage()
+	if (!isAuthenticated.value) {
+		toast.info('Please sign in with GitHub before donating.')
+		return
+	}
+	if (!resolvedAmount.value) {
+		donationMessage.value = 'Please choose a valid amount.'
+		donationError.value = true
+		return
+	}
+	if (!stripeInstance.value || !elements.value || !cardElement) {
+		donationMessage.value = 'Payment form is not ready. Refresh the page and try again.'
+		donationError.value = true
+		return
+	}
+
+	isProcessing.value = true
+	try {
+		const amountInCents = Math.round(resolvedAmount.value * 100)
+		const createIntent = httpsCallable(functions, 'createStripePaymentIntent')
+		const { data } = await createIntent({
+			productId: 'donation',
+			amount: amountInCents,
+			currency: 'usd'
+		})
+
+		const { error, paymentIntent } = await stripeInstance.value.confirmCardPayment(data.clientSecret, {
+			payment_method: {
+				card: cardElement
+			}
+		})
+
+		if (error) {
+			donationMessage.value = error.message || 'Payment failed. Please try another card.'
+			donationError.value = true
+			toast.error(donationMessage.value)
+			return
+		}
+
+		if (paymentIntent?.status === 'succeeded') {
+			try {
+				const recordDonation = httpsCallable(functions, 'recordDonation')
+				await recordDonation({ paymentIntentId: paymentIntent.id })
+			} catch (recordError) {
+				console.error('Failed to record donation', recordError)
+				toast.warning('Donation processed, but we could not update your perks automatically. Please contact support if needed.')
+			}
+
+			donationMessage.value = 'Thank you for supporting Golden Armor Studios!'
+			donationError.value = false
+			toast.success('Donation successful!')
+			customAmount.value = ''
+			if (selectedAmount.value === 'custom') {
+				selectedAmount.value = presetAmounts[0]
+			}
+			cardElement.clear()
+			await loadTransactions()
+		} else {
+			donationMessage.value = 'Payment incomplete. Please verify your card details.'
+			donationError.value = true
+			toast.error(donationMessage.value)
+		}
+	} catch (error) {
+		const message = error?.message ?? 'Unable to process the donation right now.'
+		donationMessage.value = message
+		donationError.value = true
+		toast.error(message)
+	} finally {
+		isProcessing.value = false
 	}
 }
 
@@ -213,7 +437,54 @@ const printTransactions = () => {
 }
 
 onMounted(() => {
+	const video = videoRef.value
+	if (video) {
+		video.playbackRate = 1
+	}
+
+	const initStripe = async () => {
+		if (stripeInstance.value) {
+			return
+		}
+		stripeInstance.value = await loadStripe(publishableKey)
+		if (!stripeInstance.value) {
+			toast.error('Unable to initialise Stripe. Please try again later.')
+			return
+		}
+		elements.value = stripeInstance.value.elements()
+		cardElement = elements.value.create('card', {
+			style: {
+				base: {
+					color: '#f5f8fa',
+					fontFamily: '"Inter", system-ui, sans-serif',
+					fontSize: '16px',
+					'::placeholder': {
+						color: '#7d8590'
+					}
+				},
+				invalid: {
+					color: '#ff6b6b'
+				}
+			}
+		})
+		cardElement.mount(cardElementRef.value)
+		cardReady.value = true
+	}
+
+	initStripe()
 	loadTransactions()
+})
+
+onBeforeUnmount(() => {
+	const video = videoRef.value
+	if (video) {
+		video.pause()
+	}
+	if (cardElement) {
+		cardElement.destroy()
+		cardElement = undefined
+	}
+	cardReady.value = false
 })
 
 watch(isAuthenticated, (value) => {
@@ -222,12 +493,27 @@ watch(isAuthenticated, (value) => {
 	} else {
 		transactions.value = []
 		totalAmount.value = 0
+		resetDonationMessage()
+		if (cardElement) {
+			cardElement.clear()
+		}
 	}
 })
 </script>
 
 <style scoped>
+	.background-video {
+		position: fixed;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		z-index: -2;
+		background-color: #000;
+	}
+
 	.dashboard-wrapper {
+		position: relative;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
@@ -269,12 +555,26 @@ watch(isAuthenticated, (value) => {
 		color: rgb(75, 216, 122);
 	}
 
+	.status-chip.developer {
+		background: rgba(118, 164, 255, 0.2);
+		color: rgb(118, 164, 255);
+	}
+
+	.status-chip.admin {
+		background: rgba(255, 196, 86, 0.2);
+		color: rgb(255, 196, 86);
+	}
+
 	.card-grid {
-		display: flex;
-		flex-wrap: wrap;
-		justify-content: center;
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 		gap: 1.5rem;
 		width: 100%;
+		align-items: stretch;
+	}
+
+	.card-grid.wide-cards {
+		grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 	}
 
 	.card {
@@ -282,13 +582,11 @@ watch(isAuthenticated, (value) => {
 		flex-direction: column;
 		gap: 0.75rem;
 		padding: 1.75rem;
-		border-radius: 16px;
-		background: #1f2329;
-		box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+		border-radius: 20px;
 		text-decoration: none;
 		color: inherit;
 		transition: transform 0.2s ease, box-shadow 0.2s ease;
-		border: 1px solid rgba(255, 255, 255, 0.05);
+		height: 100%;
 	}
 
 	.card:hover {
@@ -306,6 +604,7 @@ watch(isAuthenticated, (value) => {
 		color: #c6cad3;
 		line-height: 1.6;
 		flex: 1;
+		margin: 0;
 	}
 
 	.card-link {
@@ -313,13 +612,153 @@ watch(isAuthenticated, (value) => {
 		font-weight: 700;
 	}
 
-	.admin-card {
-		background: linear-gradient(145deg, rgba(31, 35, 41, 0.95), rgba(39, 43, 49, 0.95));
-		border-color: rgba(75, 216, 122, 0.35);
+	.card-actions {
+		display: flex;
+		justify-content: flex-start;
+		margin-top: auto;
 	}
+
+	.card-link-button {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		padding: 0.65rem 1.4rem;
+		border-radius: 999px;
+		border: 1px solid rgba(75, 216, 122, 0.35);
+		color: rgb(75, 216, 122);
+		font-weight: 600;
+		text-decoration: none;
+		transition: transform 0.1s ease, box-shadow 0.2s ease, filter 0.2s ease;
+	}
+
+	.card-link-button:hover {
+		filter: brightness(1.05);
+		box-shadow: 0 10px 26px rgba(75, 216, 122, 0.25);
+	}
+
+	.card-link-button:active {
+		transform: translateY(1px);
+	}
+
+	.support-card {
+		align-items: center;
+		max-width: 520px;
+		margin: 0 auto;
+		text-align: center;
+		gap: 1.2rem;
+	}
+
+	.support-card .card-body {
+		margin: 0;
+	}
+
+	.donation-form {
+		display: flex;
+		flex-direction: column;
+		gap: 1rem;
+		width: 100%;
+		max-width: 100%;
+	}
+
+	.field-row {
+		display: flex;
+		flex-direction: column;
+		gap: 0.4rem;
+	}
+
+	.field-row label {
+		font-weight: 700;
+		color: #f6f7f9;
+	}
+
+	.field-row select,
+	.field-row input {
+		background: #12161b;
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 8px;
+		padding: 0.65rem 0.75rem;
+		color: #f6f7f9;
+		font-size: 1rem;
+		transition: border-color 0.2s ease, box-shadow 0.2s ease;
+	}
+
+	.field-row select:focus,
+	.field-row input:focus {
+		outline: none;
+		border-color: rgb(75, 216, 122);
+		box-shadow: 0 0 0 3px rgba(75, 216, 122, 0.2);
+	}
+
+	.card-element {
+		background: #12161b;
+		border: 1px solid rgba(255, 255, 255, 0.1);
+		border-radius: 8px;
+		padding: 0.75rem;
+		color: #f6f7f9;
+	}
+
+	.card-element.disabled {
+		opacity: 0.5;
+	}
+
+	.donate-button {
+		background: rgb(75, 216, 122);
+		color: #0f1419;
+		font-weight: 700;
+		border: none;
+		border-radius: 10px;
+		padding: 0.85rem 1.6rem;
+		cursor: pointer;
+		transition: filter 0.2s ease, transform 0.1s ease;
+	}
+
+	.donate-button:disabled {
+		cursor: not-allowed;
+		filter: grayscale(0.5);
+	}
+
+	.donate-button:hover:not(:disabled) {
+		filter: brightness(1.05);
+	}
+
+	.donate-button:active:not(:disabled) {
+		transform: translateY(1px);
+	}
+
+	.error-message {
+		color: #ff6b6b;
+		background: rgba(255, 107, 107, 0.15);
+		padding: 0.75rem 1rem;
+		border-radius: 8px;
+	}
+
+	.success-message {
+		color: rgb(75, 216, 122);
+		background: rgba(75, 216, 122, 0.15);
+		padding: 0.75rem 1rem;
+		border-radius: 8px;
+	}
+
+	.signin-reminder {
+		margin: 0;
+		font-size: 0.9rem;
+		color: #c6cad3;
+	}
+
 
 	.donation-summary {
 		flex: 1 1 340px;
+	}
+
+	.donation-history {
+		display: flex;
+		flex-direction: column;
+		gap: 0.75rem;
+		max-height: 420px;
+	}
+
+	.donation-history > .table-scroll {
+		flex: 1;
 	}
 
 	.summary-header {
@@ -351,6 +790,44 @@ watch(isAuthenticated, (value) => {
 		color: rgb(75, 216, 122);
 	}
 
+	.mini-stats {
+		display: flex;
+		gap: 1.25rem;
+		padding: 0;
+		margin: 1rem 0 0;
+		list-style: none;
+	}
+
+	.mini-stats li {
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+	}
+
+	.stat-label {
+		font-size: 0.85rem;
+		color: #8b909a;
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+	}
+
+	.stat-value {
+		font-weight: 700;
+		color: #f6f7f9;
+	}
+
+	.text-upper {
+		text-transform: uppercase;
+	}
+
+	.table-scroll {
+		max-height: 280px;
+		overflow-x: auto;
+		overflow-y: auto;
+		margin-top: 0.5rem;
+		flex: 1;
+	}
+
 	.transactions-table {
 		width: 100%;
 		border-collapse: collapse;
@@ -375,6 +852,13 @@ watch(isAuthenticated, (value) => {
 		font-family: 'Roboto Mono', monospace;
 		font-size: 0.85rem;
 		color: #8b909a;
+		word-break: break-all;
+	}
+
+	.extra-note {
+		font-size: 0.85rem;
+		color: #8b909a;
+		margin-top: 0.75rem;
 	}
 
 	@media (max-width: 768px) {
@@ -384,6 +868,11 @@ watch(isAuthenticated, (value) => {
 
 		.card {
 			padding: 1.5rem;
+		}
+
+		.mini-stats {
+			flex-direction: column;
+			gap: 0.75rem;
 		}
 	}
 </style>

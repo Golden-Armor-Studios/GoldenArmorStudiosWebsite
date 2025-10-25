@@ -21,7 +21,7 @@
 					</a>
 				</div>
 			</div>
-			<div class="hero-media card-standard">
+		<div class="hero-media">
 				<video class="hero-video" controls autoplay loop muted playsinline>
 					<source src="/Color_IQ_Logo.mp4" type="video/mp4">
 					Your browser does not support the video tag.
@@ -53,43 +53,71 @@
 			</div>
 		</section>
 
-		<section class="highlight card-standard">
-			<h2>Featured Project — Color IQ Pro</h2>
-			<p>
-				Color IQ Pro challenges players to match hues under pressure, combining competitive leaderboards with cooperative color hunts.
-				It’s a mindful exercise that trains the eye, rewards creativity, and keeps you returning for "just one more" round.
-			</p>
-			<ul class="feature-list">
-				<li>Daily challenges and seasonal events to keep play fresh.</li>
-				<li>Cross-platform profiles so progress follows you everywhere.</li>
-				<li>Accessible design with adjustable contrast modes and tactile feedback.</li>
-			</ul>
-			<a class="inline-link" href="https://github.com/Golden-Armor-Studios/ColorIQ" target="_blank" rel="noopener noreferrer">
-				View roadmap and contribute on GitHub →
-			</a>
-		</section>
-
-		<section class="team card-standard">
+	<section class="team">
 			<h2>Meet the Guild</h2>
 			<p>
 				We’re a small guild of developers, composers, illustrators, and product thinkers rooted in collaborative storytelling.
 				Our workflow blends remote-first flexibility with focused sprints, letting us ship fast while keeping polish front and centre.
 			</p>
-			<div class="team-grid">
-				<div class="team-card">
-					<h3>Design & Narrative</h3>
-					<p>We craft worlds with lore, characters, and mechanics that reward curiosity.</p>
+	<div class="team-developers">
+		<h3 class="team-subtitle">Developers</h3>
+		<div class="team-grid developers-grid">
+			<a
+				v-for="profile in developerProfiles"
+				:key="profile.id"
+				class="developer-profile-card"
+				:href="profile.githubUrl || 'https://github.com/' + encodeURIComponent(profile.displayName.replace(/\s+/g, ''))"
+				target="_blank"
+				rel="noopener noreferrer"
+			>
+				<div class="developer-avatar">
+					<img v-if="profile.photoURL" :src="profile.photoURL" :alt="`${profile.displayName} avatar`">
+					<span v-else>{{ profile.initials }}</span>
 				</div>
-				<div class="team-card">
-					<h3>Engineering</h3>
-					<p>From prototypes to live ops, our engineers build responsive systems tailored for touch.</p>
-				</div>
-				<div class="team-card">
-					<h3>Community</h3>
-					<p>Playtests, Discord AMAs, and creator partnerships keep our compass pointed toward players.</p>
-				</div>
+				<p class="developer-name">{{ profile.displayName }}</p>
+			</a>
+		</div>
+	</div>
+	<div class="team-donors" v-if="donorsSorted.length">
+		<div class="team-top-donors" v-if="topDonors.length">
+			<h3 class="team-subtitle">Top Donors</h3>
+			<div class="team-grid top-donors-grid">
+				<a
+					v-for="profile in topDonors"
+					:key="profile.id"
+					class="developer-profile-card top-donor-card"
+					:href="profile.githubUrl || 'https://github.com/' + encodeURIComponent(profile.displayName.replace(/\s+/g, ''))"
+					target="_blank"
+					rel="noopener noreferrer"
+				>
+					<div class="developer-avatar top-donor-avatar">
+						<img v-if="profile.photoURL" :src="profile.photoURL" :alt="`${profile.displayName} avatar`">
+						<span v-else>{{ profile.initials }}</span>
+					</div>
+					<p class="developer-name">{{ profile.displayName }}</p>
+				</a>
 			</div>
-		</section>
+		</div>
+		<h3 class="team-subtitle">Donors</h3>
+		<div class="team-grid donors-grid">
+			<a
+				v-for="profile in remainingDonors"
+				:key="profile.id"
+				class="developer-profile-card"
+				:href="profile.githubUrl || 'https://github.com/' + encodeURIComponent(profile.displayName.replace(/\s+/g, ''))"
+				target="_blank"
+				rel="noopener noreferrer"
+			>
+				<div class="developer-avatar">
+					<img v-if="profile.photoURL" :src="profile.photoURL" :alt="`${profile.displayName} avatar`">
+					<span v-else>{{ profile.initials }}</span>
+				</div>
+				<p class="developer-name">{{ profile.displayName }}</p>
+			</a>
+			<p v-if="!remainingDonors.length" class="no-donors">You could be the first donor displayed here!</p>
+		</div>
+	</div>
+</section>
 
 		<section class="call-to-action card-standard">
 			<h2>Join the Adventure</h2>
@@ -103,7 +131,7 @@
 			</div>
 		</section>
 
-		<section class="support card-standard">
+	<section id="support" class="support card-standard">
 			<h2>Support Future Worlds</h2>
 			<p class="support-text">Player-backed development keeps experimental ideas alive. Donate to unlock supporter perks and help us brave new quests.</p>
 			<form class="donation-form" @submit.prevent="handleDonate">
@@ -143,15 +171,15 @@
 					{{ donationMessage }}
 				</p>
 
-				<button
-					type="submit"
-					class="donate-button"
-					:disabled="isDonateDisabled"
-				>
-					<span v-if="isProcessing">Processing…</span>
-					<span v-else-if="!isAuthenticated">Sign in to donate</span>
-					<span v-else>Donate {{ formattedAmount }}</span>
-				</button>
+	<button
+		type="submit"
+		class="donate-button"
+		:disabled="isDonateDisabled"
+	>
+		<span v-if="isProcessing">Processing…</span>
+		<span v-else-if="!isAuthenticated">Sign in to donate</span>
+		<span v-else>Donate {{ formattedAmount }}</span>
+	</button>
 				<p v-if="!isAuthenticated" class="signin-reminder">
 					Sign in with GitHub from the navigation menu to support the studio.
 				</p>
@@ -168,7 +196,7 @@ import { functions } from '@/firebase'
 import { useToast } from 'vue-toastification'
 import { loadStripe } from '@stripe/stripe-js'
 
-const publishableKey = 'pk_test_51SJcdf4KCvZmdJkAJrl6AriRJtxYFqWXwEJT4gFw3p8yVdZOacHmyEVl1dYhJgGwd6AmFGOWHutM3rbkuYILx7Gw00gHO3inU4'
+const publishableKey = 'pk_live_51SJccOKYzIVp9MDU493vDCMnQbSGmnrhPAa6YXR0PzxoqRs5YX8AWrv8zvAmBHfKBc7tTT6MQKbNDZAIQcA8bgV900hbt7WfPc'
 
 const store = useStore()
 const toast = useToast()
@@ -184,6 +212,9 @@ const elements = ref(null)
 const cardElementRef = ref(null)
 const cardReady = ref(false)
 let cardElement
+
+const developerProfiles = ref([])
+const donorsSorted = ref([])
 
 const isAuthenticated = computed(() => store.getters['user/isAuthenticated'])
 
@@ -202,6 +233,9 @@ const formattedAmount = computed(() => {
 	return `$${resolvedAmount.value}`
 })
 
+const topDonors = computed(() => donorsSorted.value.slice(0, 3))
+const remainingDonors = computed(() => donorsSorted.value.slice(3))
+
 const isDonateDisabled = computed(() => {
 	if (isProcessing.value || !cardReady.value) {
 		return true
@@ -213,6 +247,8 @@ const isDonateDisabled = computed(() => {
 })
 
 onMounted(async () => {
+	fetchDeveloperProfiles()
+	fetchDonorProfiles()
 	stripe.value = await loadStripe(publishableKey)
 	if (!stripe.value) {
 		toast.error('Unable to initialise Stripe. Please try again later.')
@@ -319,6 +355,56 @@ const handleDonate = async () => {
 		toast.error(message)
 	} finally {
 		isProcessing.value = false
+	}
+}
+
+const mapMemberProfile = (profile) => {
+	const displayName = (profile.githubDisplayName || profile.displayName || '').trim()
+	const fallbackName = displayName || 'Supporter'
+	const initials = fallbackName
+		.split(' ')
+		.filter(Boolean)
+		.map((part) => part[0]?.toUpperCase())
+		.slice(0, 2)
+		.join('') || 'DEV'
+
+	return {
+		id: profile.id,
+		displayName: fallbackName,
+		photoURL: profile.photoURL || null,
+		initials,
+		githubUrl: profile.githubUrl || null,
+		totalAmount: Number(profile.totalAmount) || 0,
+		currency: profile.currency || 'usd'
+	}
+}
+
+const fetchDeveloperProfiles = async () => {
+	try {
+		const callable = httpsCallable(functions, 'getDeveloperProfiles')
+		const { data } = await callable()
+		const profilesArray = Array.isArray(data?.profiles) ? data.profiles.map(mapMemberProfile) : []
+		profilesArray.sort((a, b) => a.displayName.localeCompare(b.displayName))
+		developerProfiles.value = profilesArray
+	} catch (error) {
+		console.error('Failed to load developer profiles', error)
+	}
+}
+
+const fetchDonorProfiles = async () => {
+	try {
+		const callable = httpsCallable(functions, 'getDonorProfiles')
+		const { data } = await callable()
+		const profilesArray = Array.isArray(data?.profiles) ? data.profiles.map(mapMemberProfile) : []
+		profilesArray.sort((a, b) => {
+			if (b.totalAmount !== a.totalAmount) {
+				return b.totalAmount - a.totalAmount
+			}
+			return a.displayName.localeCompare(b.displayName)
+		})
+		donorsSorted.value = profilesArray
+	} catch (error) {
+		console.error('Failed to load donor profiles', error)
 	}
 }
 </script>
@@ -448,19 +534,24 @@ const handleDonate = async () => {
 
 	.pillars {
 		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+		grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
 		gap: 1.5rem;
 		width: 100%;
+		align-items: stretch;
 	}
 
 	.pillar {
 		display: flex;
 		flex-direction: column;
+		align-items: center;
 		gap: 0.75rem;
 		border: 1px solid rgba(255, 255, 255, 0.12);
-		background: transparent;
 		backdrop-filter: blur(4px);
 		color: #d5d7de;
+		padding: 1.75rem;
+		border-radius: 20px;
+		text-align: center;
+		height: 100%;
 	}
 
 	.pillar h2 {
@@ -478,16 +569,19 @@ const handleDonate = async () => {
 		flex-direction: column;
 		gap: 1rem;
 		color: #d5d7de;
-		background: transparent;
 		border: 1px solid rgba(255, 255, 255, 0.12);
 		backdrop-filter: blur(4px);
+		padding: 1.75rem;
+		border-radius: 20px;
+		text-align: center;
 	}
 
 	.feature-list {
-		margin: 0;
+		margin: 0 auto;
 		padding-left: 1.2rem;
 		color: #d5d7de;
 		line-height: 1.6;
+		max-width: 540px;
 	}
 
 	.inline-link {
@@ -505,21 +599,156 @@ const handleDonate = async () => {
 		flex-direction: column;
 		gap: 1.2rem;
 		color: #d5d7de;
+		align-items: center;
+		text-align: center;
+		width: 100%;
+		max-width: 960px;
+		margin: 0 auto 2.5rem;
+	}
+
+	.team h2 {
+		font-size: 2.4rem;
+		margin: 0;
+		color: #f6f7f9;
+	}
+
+	.team > p {
+		font-size: 1.1rem;
+		margin: 0;
+		max-width: 720px;
 	}
 
 	.team-grid {
 		display: grid;
 		grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
 		gap: 1rem;
+		width: 100%;
 	}
 
-	.team-card {
-		padding: 1rem;
-		border-radius: 12px;
-		border: 1px solid rgba(255, 255, 255, 0.1);
-		background: transparent;
-		backdrop-filter: blur(3px);
-		color: #d5d7de;
+	.team-developers {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1.2rem;
+	}
+
+	.team-donors {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1.2rem;
+		margin-top: 2.5rem;
+	}
+
+	.team-top-donors {
+		width: 100%;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1.2rem;
+	}
+
+	.team-donors > .team-subtitle {
+		margin-top: 2rem;
+	}
+
+	.team-donors .team-subtitle + .donors-grid {
+		margin-top: 1.2rem;
+	}
+
+	.team-top-donors .team-subtitle {
+		font-size: 1.8rem;
+	}
+
+	.team-subtitle {
+		margin: 0;
+		font-size: 1.3rem;
+		color: #f6f7f9;
+	}
+
+	.developers-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+		gap: 1rem;
+		width: min(100%, 520px);
+		justify-items: center;
+	}
+
+	.donors-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+		gap: 1rem;
+		width: min(100%, 520px);
+		justify-items: center;
+	}
+
+	.top-donors-grid {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+		gap: 1.25rem;
+		width: min(100%, 520px);
+		justify-items: center;
+	}
+
+	.developer-profile-card {
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.6rem;
+		text-decoration: none;
+		color: inherit;
+		transition: transform 0.15s ease;
+	}
+
+	.developer-profile-card:hover {
+		transform: translateY(-2px);
+	}
+
+	.developer-avatar {
+		width: 72px;
+		height: 72px;
+		border-radius: 50%;
+		overflow: hidden;
+		background: rgba(255, 255, 255, 0.08);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+	}
+
+	.top-donor-avatar {
+		width: 112px;
+		height: 112px;
+	}
+
+	.top-donor-card {
+		gap: 0.8rem;
+	}
+
+	.developer-avatar img {
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+	}
+
+	.developer-avatar span {
+		font-size: 1.6rem;
+		font-weight: 700;
+		color: rgb(75, 216, 122);
+	}
+
+	.developer-name {
+		margin: 0;
+		color: #f6f7f9;
+		font-weight: 600;
+	}
+
+	.no-donors {
+		margin: 0.5rem 0 0;
+		color: #b9bcc3;
+		font-size: 0.95rem;
 	}
 
 	.call-to-action {
@@ -527,14 +756,17 @@ const handleDonate = async () => {
 		flex-direction: column;
 		gap: 1rem;
 		color: #d5d7de;
-		background: transparent;
 		border: 1px solid rgba(255, 255, 255, 0.12);
 		backdrop-filter: blur(4px);
+		padding: 1.75rem;
+		border-radius: 20px;
+		text-align: center;
 	}
 
 	.cta-actions {
 		display: flex;
 		flex-wrap: wrap;
+		justify-content: center;
 		gap: 0.75rem;
 	}
 
@@ -543,9 +775,14 @@ const handleDonate = async () => {
 		flex-direction: column;
 		gap: 1.2rem;
 		color: #d5d7de;
-		background: transparent;
 		border: 1px solid rgba(255, 255, 255, 0.12);
 		backdrop-filter: blur(4px);
+		padding: 1.75rem;
+		border-radius: 20px;
+		align-items: center;
+		text-align: center;
+		max-width: 520px;
+		margin: 0 auto;
 	}
 
 	.support-text {
@@ -557,6 +794,7 @@ const handleDonate = async () => {
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
+		width: 100%;
 	}
 
 	.field-row {

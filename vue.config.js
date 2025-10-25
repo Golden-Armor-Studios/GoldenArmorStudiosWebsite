@@ -3,6 +3,12 @@ const { defineConfig } = require('@vue/cli-service');
 
 module.exports = defineConfig({
   transpileDependencies: [],
+  pages: {
+    index: {
+      entry: 'src/main.js',
+      title: 'Golden Armor Studio'
+    }
+  },
   configureWebpack: (config) => {
     // remove any ProgressPlugin added by plugins with bad options
     config.plugins = (config.plugins || []).filter(p => !(p instanceof webpack.ProgressPlugin));
@@ -12,4 +18,3 @@ module.exports = defineConfig({
   // If you previously had devServer.progress, remove it. For WDS v4 use:
   // devServer: { client: { progress: true } }
 });
-

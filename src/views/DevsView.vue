@@ -389,10 +389,8 @@
 	}
 
 	.status-card {
-		background: #1f2329;
 		padding: 1.5rem;
-		border-radius: 12px;
-		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+		border-radius: 20px;
 	}
 
 	.user-grid {
@@ -405,13 +403,11 @@
 	}
 
 	.user-card {
-		background: #12161b;
-		border-radius: 14px;
+		border-radius: 20px;
 		padding: 1.25rem;
 		display: flex;
 		flex-direction: column;
 		gap: 0.6rem;
-		box-shadow: 0 10px 28px rgba(0, 0, 0, 0.25);
 	}
 
 	.user-card-header {

@@ -1,16 +1,21 @@
 <template>
 	<div class="form-wrapper">
-		<h1 class="homepage-title">Join the Team</h1>
-		<p class="homepage-p description">
-			We’re excited to learn more about you! Fill out the form below and we’ll review your application.
-		</p>
-
-		<section v-if="!isAuthenticated" class="notice-card card-standard">
+		<video ref="videoRef" class="background-video" autoplay muted loop playsinline>
+			<source src="/website background - join team.mp4" type="video/mp4" />
+		</video>
+		<section v-if="!isAuthenticated" class="notice-card">
 			<p class="homepage-p">Please sign in to submit your application.</p>
 			<RouterLink class="homepage-link" to="/login">Go to Login</RouterLink>
 		</section>
 
 		<form v-else class="application-form" @submit.prevent="handleSubmit">
+			<header class="form-header">
+				<h1 class="homepage-title">Join the Team</h1>
+				<p class="homepage-p description">
+					We’re excited to learn more about you! Fill out the form below and we’ll review your application.
+				</p>
+			</header>
+
 			<div class="field">
 				<label for="developerType">What type of developer are you?</label>
 				<select id="developerType" v-model="form.developerType" required>
@@ -57,9 +62,36 @@
 				</div>
 			</div>
 
-			<div class="field">
-				<label for="address">What is your address?</label>
-				<input id="address" v-model="form.address" type="text" autocomplete="street-address" required>
+			<div class="field-group address-group">
+				<div class="field">
+					<label for="street">Street address</label>
+					<input id="street" v-model="form.street" type="text" autocomplete="street-address" required>
+				</div>
+				<div class="field">
+					<label for="city">City</label>
+					<input id="city" v-model="form.city" type="text" autocomplete="address-level2" required>
+				</div>
+				<div class="field state-field">
+					<label for="state">State</label>
+					<select id="state" v-model="form.state" autocomplete="address-level1" required>
+						<option disabled value="">Select state</option>
+						<option v-for="stateOption in stateOptions" :key="stateOption" :value="stateOption">
+							{{ stateOption }}
+						</option>
+					</select>
+				</div>
+				<div class="field zip-field">
+					<label for="postalCode">ZIP code</label>
+					<input
+						id="postalCode"
+						v-model="form.postalCode"
+						type="text"
+						autocomplete="postal-code"
+						pattern="\\d{5}(-\\d{4})?"
+						placeholder="e.g. 94105"
+						required
+					>
+				</div>
 			</div>
 
 			<div class="field">
@@ -67,31 +99,30 @@
 				<input id="phone" v-model="form.phone" type="tel" autocomplete="tel" required>
 			</div>
 
-			<div class="field">
-				<label for="portfolio">Portfolio link</label>
-				<input id="portfolio" v-model="form.portfolio" type="url" placeholder="https://example.com" required>
-			</div>
+		<div class="field">
+			<label for="portfolio">Portfolio link</label>
+			<input id="portfolio" v-model="form.portfolio" type="url" placeholder="https://example.com">
+		</div>
 
-			<div class="field">
-				<label for="otherLinks">Any other links?</label>
-				<textarea
-					id="otherLinks"
-					v-model="form.otherLinks"
-					rows="3"
-					placeholder="Share GitHub, LinkedIn, ArtStation, etc."
-				></textarea>
-			</div>
+		<div class="field">
+			<label for="otherLinks">Any other links?</label>
+			<textarea
+				id="otherLinks"
+				v-model="form.otherLinks"
+				rows="3"
+				placeholder="Share GitHub, LinkedIn, ArtStation, etc."
+			></textarea>
+		</div>
 
-			<div class="field">
-				<label for="about">Tell us a little about yourself</label>
-				<textarea
-					id="about"
-					v-model="form.about"
-					rows="5"
-					required
-					placeholder="Share your passions, goals, or favorite projects."
-				></textarea>
-			</div>
+		<div class="field">
+			<label for="about">Tell us a little about yourself</label>
+			<textarea
+				id="about"
+				v-model="form.about"
+				rows="5"
+				placeholder="Share your passions, goals, or favorite projects."
+			></textarea>
+		</div>
 
 			<div v-if="errorMessage" class="error-message" role="alert">
 				{{ errorMessage }}
@@ -111,7 +142,7 @@
 </template>
 
 <script setup>
-	import { computed, reactive, ref } from 'vue'
+	import { computed, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 	import { RouterLink } from 'vue-router'
 	import { useStore } from 'vuex'
 	import { httpsCallable } from 'firebase/functions'
@@ -122,17 +153,26 @@
 	const isAuthenticated = computed(() => store.getters['user/isAuthenticated'])
 	const toast = useToast()
 
+	const US_STATES = [
+		'AL','AK','AZ','AR','CA','CO','CT','DE','FL','GA','HI','ID','IL','IN','IA','KS','KY','LA','ME','MD','MA','MI','MN','MS','MO','MT','NE','NV','NH','NJ','NM','NY','NC','ND','OH','OK','OR','PA','RI','SC','SD','TN','TX','UT','VT','VA','WA','WV','WI','WY'
+	]
+
 	const form = reactive({
 		developerType: '',
 		experience: null,
 		languages: [],
-		address: '',
+		street: '',
+		city: '',
+		state: '',
+		postalCode: '',
 		phone: '',
 		portfolio: '',
 		otherLinks: '',
 		about: ''
 	})
 
+	const videoRef = ref(null)
+	const stateOptions = US_STATES
 	const languageInput = ref('')
 	const isSubmitting = ref(false)
 	const errorMessage = ref('')
@@ -171,12 +211,19 @@
 		form.developerType = ''
 		form.experience = null
 		form.languages = []
-		form.address = ''
+		form.street = ''
+		form.city = ''
+		form.state = ''
+		form.postalCode = ''
 		form.phone = ''
 		form.portfolio = ''
 		form.otherLinks = ''
 		form.about = ''
 		languageInput.value = ''
+	}
+
+	const buildAddress = () => {
+		return [form.street, `${form.city}, ${form.state} ${form.postalCode}`.trim()].filter(Boolean).join('\n')
 	}
 
 	const handleSubmit = async () => {
@@ -189,11 +236,11 @@
 				developerType: form.developerType,
 				experience: form.experience,
 				languages: form.languages,
-				address: form.address,
+				address: buildAddress(),
 				phone: form.phone,
-				portfolio: form.portfolio,
-				otherLinks: form.otherLinks,
-				about: form.about
+				portfolio: form.portfolio || null,
+				otherLinks: form.otherLinks || null,
+				about: form.about || null
 			})
 
 			successMessage.value = 'Application submitted! We will reach out after we review your details.'
@@ -206,15 +253,43 @@
 			isSubmitting.value = false
 		}
 	}
+
+	onMounted(() => {
+		const video = videoRef.value
+		if (video) {
+			video.playbackRate = 1
+		}
+	})
+
+	onBeforeUnmount(() => {
+		const video = videoRef.value
+		if (video) {
+			video.pause()
+		}
+	})
 </script>
 
 <style scoped>
+	.background-video {
+		position: fixed;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		z-index: -2;
+		background-color: #000;
+	}
+
 	.form-wrapper {
+		position: relative;
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		gap: 1.5rem;
-		width: min(960px, 100%);
+		width: min(720px, 100%);
+		margin: 0 auto;
+		padding: 4rem 1.5rem;
+		box-sizing: border-box;
 	}
 
 	.description {
@@ -224,22 +299,35 @@
 	}
 
 	.notice-card {
-		background: #1f2329;
-		padding: 1.5rem;
-		border-radius: 12px;
-		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+		background: rgba(8, 12, 18, 0.85);
+		padding: 2rem;
+		border-radius: 20px;
+		box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		backdrop-filter: blur(6px);
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 1rem;
+		width: min(480px, 100%);
+	}
+
+	.form-header {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		gap: 0.75rem;
+		text-align: center;
 	}
 
 	.application-form {
 		width: 100%;
-		background: #1f2329;
+		background: rgba(8, 12, 18, 0.85);
 		padding: 2rem;
-		border-radius: 16px;
-		box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
+		border-radius: 20px;
+		box-shadow: 0 18px 40px rgba(0, 0, 0, 0.45);
+		border: 1px solid rgba(255, 255, 255, 0.08);
+		backdrop-filter: blur(6px);
 		display: flex;
 		flex-direction: column;
 		gap: 1.25rem;
@@ -249,6 +337,26 @@
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
+	}
+
+	.address-group {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: 1rem;
+	}
+
+	.address-group .state-field,
+	.address-group .zip-field {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.address-group .state-field select {
+		text-transform: uppercase;
+	}
+
+	.address-group .zip-field input {
+		max-width: 160px;
 	}
 
 	label {
@@ -397,6 +505,14 @@
 	@media (max-width: 640px) {
 		.application-form {
 			padding: 1.25rem;
+		}
+
+		.address-group {
+			grid-template-columns: 1fr;
+		}
+
+		.address-group .zip-field input {
+			max-width: none;
 		}
 
 		.actions {

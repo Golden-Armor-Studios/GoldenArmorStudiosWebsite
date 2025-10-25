@@ -8,16 +8,12 @@
 			Fresh data from GitHub highlighting progress, outstanding work, and milestones for ColorIQ.
 		</p>
 
-		<section v-if="isLoading" class="status-block card-standard">
-			<p class="homepage-p">Loading GitHub data...</p>
-		</section>
-
-		<section v-else-if="errorMessage" class="status-block error card-standard">
+		<section v-if="errorMessage" class="status-block error card-standard">
 			<p class="homepage-p">Unable to load repository data.</p>
 			<p class="homepage-p error-detail">{{ errorMessage }}</p>
 		</section>
 
-		<section v-else class="status-grid">
+		<section v-else-if="hasLoaded" class="status-grid">
 			<div class="status-row">
 				<div class="status-card card-standard">
 					<h2 class="section-title">Repository Overview</h2>
@@ -93,8 +89,6 @@
 					</ul>
 					<p v-else class="homepage-p muted">No milestones available.</p>
 				</div>
-
-				<div class="status-card card-standard placeholder-card" aria-hidden="true"></div>
 			</div>
 		</section>
 	</div>
@@ -107,7 +101,7 @@ import { onMounted, onBeforeUnmount, ref } from 'vue'
 	const repo = ref(null)
 	const issues = ref([])
 	const milestones = ref([])
-	const isLoading = ref(true)
+	const hasLoaded = ref(false)
 	const errorMessage = ref('')
 
 	onBeforeUnmount(() => {
@@ -138,7 +132,6 @@ const formatDate = (value) => {
 		rawIssues.filter((item) => !item.pull_request)
 
 	const fetchRepoData = async () => {
-		isLoading.value = true
 		errorMessage.value = ''
 
 		try {
@@ -164,7 +157,7 @@ const formatDate = (value) => {
 		} catch (error) {
 			errorMessage.value = error?.message ?? 'Unknown error'
 		} finally {
-			isLoading.value = false
+			hasLoaded.value = true
 		}
 	}
 
@@ -185,16 +178,22 @@ const formatDate = (value) => {
 		height: 100%;
 		object-fit: cover;
 		z-index: -2;
+		background-color: #000;
 	}
 	.repo-wrapper {
 		position: relative;
 	}
-.repo-wrapper {
+
+	.repo-wrapper {
 		display: flex;
 		flex-direction: column;
 		align-items: center;
 		gap: 1.5rem;
-		width: min(960px, 100%);
+		width: 100%;
+		max-width: 960px;
+		padding: 0 16px 2rem;
+		box-sizing: border-box;
+		margin: 0 auto;
 	}
 
 	.description {
@@ -205,10 +204,10 @@ const formatDate = (value) => {
 
 	.status-block {
 		width: 100%;
-		background: #1f2329;
 		padding: 1.5rem;
-		border-radius: 12px;
-		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+		border-radius: 20px;
+		max-width: 720px;
+		margin: 0 auto;
 	}
 
 	.status-block.error {
@@ -220,29 +219,29 @@ const formatDate = (value) => {
 		flex-direction: column;
 		gap: 1.5rem;
 		width: 100%;
+		align-items: center;
 	}
 
 	.status-row {
-		display: flex;
-		flex-direction: row;
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
 		gap: 1.5rem;
-		justify-content: space-between;
-		flex-wrap: wrap;
+		justify-items: center;
 		width: 100%;
-}
+	}
 
 	.status-row > .status-card {
-		flex: 1 1 340px;
+		width: 100%;
 	}
 
 	.status-card {
-		background: #1f2329;
 		padding: 1.5rem;
-		border-radius: 12px;
-		box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+		border-radius: 20px;
 		display: flex;
 		flex-direction: column;
 		gap: 1rem;
+		align-items: center;
+		text-align: center;
 		min-height: 220px;
 	}
 
@@ -255,12 +254,14 @@ const formatDate = (value) => {
 	.repo-description {
 		color: #d0d4dc;
 		margin: 0;
+		max-width: 540px;
 	}
 
 	.stats-row {
 		display: flex;
 		flex-wrap: wrap;
 		gap: 1rem;
+		justify-content: center;
 	}
 
 	.stat {
@@ -268,6 +269,9 @@ const formatDate = (value) => {
 		padding: 0.75rem 1rem;
 		border-radius: 8px;
 		min-width: 120px;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
 	}
 
 	.stat-label {
@@ -284,8 +288,35 @@ const formatDate = (value) => {
 	}
 
 	.repo-link {
-		align-self: flex-start;
 		font-weight: 700;
+		margin-top: 1rem;
+	}
+
+	@media (max-width: 1024px) {
+		.status-row {
+			grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+		}
+	}
+
+	@media (max-width: 480px) {
+		.status-row {
+			grid-template-columns: minmax(0, 1fr);
+			max-width: 360px;
+			margin: 0 auto;
+		}
+
+		.status-card {
+			max-width: 360px;
+		}
+
+		.status-block {
+			max-width: 360px;
+			margin: 0 auto;
+		}
+
+		.repo-link {
+			margin-top: 1.25rem;
+		}
 	}
 
 	.list {

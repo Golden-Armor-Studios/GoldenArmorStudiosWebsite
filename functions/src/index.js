@@ -3,12 +3,40 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 
-const stripeSecret = functions.config().stripe?.secret;
-const stripe = stripeSecret ? require("stripe")(stripeSecret) : null;
-
 admin.initializeApp();
 
+let stripeInstance = null;
+
+const getStripeClient = () => {
+	const stripeSecret = functions.config().stripe?.secret;
+	if (!stripeSecret) {
+		throw new functions.https.HttpsError(
+			"failed-precondition",
+			"Stripe secret key is not configured. Set functions config `stripe.secret`."
+		);
+	}
+
+	if (!stripeInstance) {
+		stripeInstance = require("stripe")(stripeSecret);
+	}
+
+	return stripeInstance;
+};
+
 const allowedGroups = ["member", "subscriber", "donor", "admin", "developer"];
+
+const normalizeGroups = (groups) => {
+	const initialGroups = Array.isArray(groups) ? groups : [];
+	const sanitized = Array.from(new Set(initialGroups
+		.map((group) => typeof group === "string" ? group.trim() : "")
+		.filter((group) => allowedGroups.includes(group))));
+
+	if (!sanitized.includes("member")) {
+		sanitized.unshift("member");
+	}
+
+	return sanitized;
+};
 
 const ensureAdmin = (context) => {
 	if (!context.auth || !Array.isArray(context.auth.token?.groups) || !context.auth.token.groups.includes("admin")) {
@@ -22,13 +50,18 @@ const ensureAuthenticated = (context) => {
 	}
 };
 
-const ensureStripeConfigured = () => {
-	if (!stripe) {
-		throw new functions.https.HttpsError(
-			"failed-precondition",
-			"Stripe secret key is not configured. Set functions config `stripe.secret`."
-		);
+const resolveUserGroups = async (uid, fallbackGroups = []) => {
+	const userRef = admin.firestore().collection("users").doc(uid);
+	const userDoc = await userRef.get();
+	const docData = userDoc.exists ? userDoc.data() || {} : {};
+
+	const docGroups = normalizeGroups(docData.groups);
+	if (docGroups.length) {
+		return docGroups;
 	}
+
+	const sanitizedFallback = normalizeGroups(fallbackGroups);
+	return sanitizedFallback.length ? sanitizedFallback : ["member"];
 };
 
 exports.helloWorld = functions.https.onRequest((request, response) => {
@@ -126,6 +159,33 @@ exports.syncUserGroups = functions.auth.user().beforeSignIn(async (user, context
 	}
 });
 
+exports.generateCustomAuthToken = functions.https.onCall(async (_, context) => {
+	ensureAuthenticated(context);
+	const uid = context.auth.uid;
+	const fallbackGroups = normalizeGroups(context.auth.token?.groups);
+
+	try {
+		const groups = await resolveUserGroups(uid, fallbackGroups);
+		const customToken = await admin.auth().createCustomToken(uid, { groups });
+
+		functions.logger.info(`Generated custom auth token for user ${uid}`, {groups});
+
+		return {
+			token: customToken,
+			groups,
+			issuedAt: new Date().toISOString()
+		};
+	} catch (error) {
+		functions.logger.error("Failed to generate custom auth token", error);
+
+		if (error instanceof functions.https.HttpsError) {
+			throw error;
+		}
+
+		throw new functions.https.HttpsError("internal", error?.message || "Unable to generate a custom auth token at this time.");
+	}
+});
+
 exports.submitTeamApplication = functions.https.onCall(async (data, context) => {
 	if (!context.auth) {
 		throw new functions.https.HttpsError("unauthenticated", "You must be signed in to submit an application.");
@@ -210,7 +270,7 @@ exports.submitTeamApplication = functions.https.onCall(async (data, context) => 
 
 exports.createStripePaymentIntent = functions.https.onCall(async (data, context) => {
 	ensureAuthenticated(context);
-	ensureStripeConfigured();
+	const stripe = getStripeClient();
 
 	const { productId, amount, currency } = data || {};
 	const sanitizedProductId = typeof productId === "string" ? productId.trim() : "";
@@ -250,7 +310,7 @@ exports.createStripePaymentIntent = functions.https.onCall(async (data, context)
 
 exports.createStripeSetupIntent = functions.https.onCall(async (data, context) => {
 	ensureAuthenticated(context);
-	ensureStripeConfigured();
+	const stripe = getStripeClient();
 
 	const usage = typeof data?.usage === "string" ? data.usage : "off_session";
 
@@ -310,7 +370,7 @@ const addDonorTransaction = async (uid, amount, currency, paymentIntentId, metad
 
 exports.recordDonation = functions.https.onCall(async (data, context) => {
 	ensureAuthenticated(context);
-	ensureStripeConfigured();
+	const stripe = getStripeClient();
 
 	const { paymentIntentId } = data || {};
 	if (typeof paymentIntentId !== "string" || paymentIntentId.trim().length === 0) {
@@ -493,5 +553,66 @@ exports.deleteUserAccount = functions.https.onCall(async (data, context) => {
 	} catch (error) {
 		functions.logger.error("Failed to delete user", error);
 		throw new functions.https.HttpsError("internal", "Unable to delete user.");
+	}
+});
+
+exports.getDeveloperProfiles = functions.https.onCall(async () => {
+	try {
+		const snapshot = await admin.firestore()
+			.collection("users")
+			.where("groups", "array-contains", "developer")
+			.limit(100)
+			.get();
+
+		const profiles = snapshot.docs.map((doc) => {
+			const data = doc.data() || {};
+			const displayName = data.githubDisplayName || data.displayName || data.email || doc.id;
+			const transactions = Array.isArray(data.transactions) ? data.transactions : [];
+			const totalAmount = transactions.reduce((sum, txn) => sum + (Number(txn.amount) || 0), 0);
+			const currency = transactions[0]?.currency || 'usd';
+
+			return {
+				id: doc.id,
+				displayName,
+				githubDisplayName: data.githubDisplayName || null,
+				photoURL: data.photoURL || null,
+				githubUrl: data.githubProfileUrl || null,
+				totalAmount,
+				currency
+			};
+		});
+
+		return {profiles};
+	} catch (error) {
+		functions.logger.error("Failed to load developer profiles", error);
+		throw new functions.https.HttpsError("internal", "Unable to load developer profiles.");
+	}
+});
+
+exports.getDonorProfiles = functions.https.onCall(async () => {
+	try {
+		const snapshot = await admin.firestore()
+			.collection("users")
+			.where("groups", "array-contains", "donor")
+			.limit(100)
+			.get();
+
+		const profiles = snapshot.docs.map((doc) => {
+			const data = doc.data() || {};
+			const displayName = data.githubDisplayName || data.displayName || data.email || doc.id;
+
+			return {
+				id: doc.id,
+				displayName,
+				githubDisplayName: data.githubDisplayName || null,
+				photoURL: data.photoURL || null,
+				githubUrl: data.githubProfileUrl || null
+			};
+		});
+
+		return {profiles};
+	} catch (error) {
+		functions.logger.error("Failed to load donor profiles", error);
+		throw new functions.https.HttpsError("internal", "Unable to load donor profiles.");
 	}
 });
