@@ -95,18 +95,25 @@
 						>
 							Developer
 						</button>
-						<div
-							v-if="isDeveloperOpen"
-							class="dropdown-menu"
-						>
-						<RouterLink
-							class="dropdown-link"
-							to="/dev-tools"
-							@click="closeNavAndDeveloper"
-						>
-							Dev Tools
-						</RouterLink>
-						</div>
+					<div
+						v-if="isDeveloperOpen"
+						class="dropdown-menu"
+					>
+					<RouterLink
+						class="dropdown-link"
+						to="/dev-tools"
+						@click="closeNavAndDeveloper"
+					>
+						Dev Tools
+					</RouterLink>
+					<RouterLink
+						class="dropdown-link"
+						to="/news-editor"
+						@click="closeNavAndDeveloper"
+					>
+						News Editor
+					</RouterLink>
+					</div>
 					</div>
 					<div
 						v-if="isAdmin"

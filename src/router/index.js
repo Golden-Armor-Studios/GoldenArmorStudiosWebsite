@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import NewsFeedView from '../views/NewsFeedView.vue'
+import NewsEditorView from '../views/NewsEditorView.vue'
 import HomeView from '../views/HomeView.vue'
 import LoginView from '../views/LoginView.vue'
 import RepoOverviewView from '../views/RepoOverviewView.vue'
@@ -70,6 +71,15 @@ const routes = [
     alias: '/developer-news',
     name: 'DevTools',
     component: NewsFeedView,
+    meta: {
+      requiresAuth: true,
+      requiresGroup: 'developer'
+    }
+  },
+  {
+    path: '/news-editor',
+    name: 'NewsEditor',
+    component: NewsEditorView,
     meta: {
       requiresAuth: true,
       requiresGroup: 'developer'
