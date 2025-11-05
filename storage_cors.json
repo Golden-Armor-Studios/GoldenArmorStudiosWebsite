@@ -1,0 +1,7 @@
+[
+  {
+    "origin": ["http://localhost:8080", "https://goldenarmorstudio.web.app", "https://goldenarmorstudio.firebaseapp.com"],
+    "method": ["GET"],
+    "maxAgeSeconds": 3600
+  }
+]

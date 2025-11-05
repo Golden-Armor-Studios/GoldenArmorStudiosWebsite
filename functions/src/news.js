@@ -138,16 +138,26 @@ const getNewsArticle = functions.https.onCall(async (data, context) => {
 	}
 
 	const docData = snapshot.data() || {};
+	const rawMedia = Array.isArray(docData.media) ? docData.media : [];
+	const legacyMedia = Array.isArray(docData.assets) ? docData.assets :
+		Array.isArray(docData.attachments) ? docData.attachments :
+			Array.isArray(docData.images) ? docData.images :
+				Array.isArray(docData.inlineImages) ? docData.inlineImages : [];
+	const media = rawMedia.length ? rawMedia : legacyMedia;
+	const legacyCoverImage = docData.cover || docData.coverPhoto || docData.coverUrl || docData.heroImage || null;
 
 	return {
 		article: {
 			id: snapshot.id,
 			title: docData.title || "",
 			contentHtml: docData.contentHtml || "",
+			legacyContent: docData.content || docData.body || "",
 			summary: docData.summary || "",
 			status: docData.status || "draft",
 			coverImage: docData.coverImage || null,
-			media: Array.isArray(docData.media) ? docData.media : [],
+			legacyCoverImage,
+			media,
+			legacyMedia,
 			inlineImages: Array.isArray(docData.inlineImages) ? docData.inlineImages : [],
 			likesCount: Number.isFinite(docData.likesCount) ? docData.likesCount : 0,
 			commentsCount: Number.isFinite(docData.commentsCount) ? docData.commentsCount : 0,
@@ -187,15 +197,26 @@ const getPublishedNewsArticle = functions.https.onCall(async (data, context) => 
 		}
 	}
 
+	const rawMedia = Array.isArray(docData.media) ? docData.media : [];
+	const legacyMedia = Array.isArray(docData.assets) ? docData.assets :
+		Array.isArray(docData.attachments) ? docData.attachments :
+			Array.isArray(docData.images) ? docData.images :
+				Array.isArray(docData.inlineImages) ? docData.inlineImages : [];
+	const media = rawMedia.length ? rawMedia : legacyMedia;
+	const legacyCoverImage = docData.cover || docData.coverPhoto || docData.coverUrl || docData.heroImage || null;
+
 	return {
 		article: {
 			id: snapshot.id,
 			title: docData.title || "",
 			contentHtml: docData.contentHtml || "",
+			legacyContent: docData.content || docData.body || "",
 			summary: docData.summary || "",
 			status: docData.status || "published",
 			coverImage: docData.coverImage || null,
-			media: Array.isArray(docData.media) ? docData.media : [],
+			legacyCoverImage,
+			media,
+			legacyMedia,
 			inlineImages: Array.isArray(docData.inlineImages) ? docData.inlineImages : [],
 			likesCount: Number.isFinite(docData.likesCount) ? docData.likesCount : 0,
 			commentsCount: Number.isFinite(docData.commentsCount) ? docData.commentsCount : 0,
