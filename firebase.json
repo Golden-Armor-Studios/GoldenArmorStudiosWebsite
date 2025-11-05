@@ -55,9 +55,56 @@
         "function": "getDonorProfiles"
       },
       {
+        "source": "/createNewsArticle",
+        "function": "createNewsArticle"
+      },
+      {
+        "source": "/listNewsArticles",
+        "function": "listNewsArticles"
+      },
+      {
+        "source": "/listPublishedNews",
+        "function": "listPublishedNews"
+      },
+      {
+        "source": "/addNewsComment",
+        "function": "addNewsComment"
+      },
+      {
+        "source": "/getPublishedNewsComments",
+        "function": "getPublishedNewsComments"
+      },
+      {
+        "source": "/toggleNewsLike",
+        "function": "toggleNewsLike"
+      },
+      {
+        "source": "/getNewsEngagement",
+        "function": "getNewsEngagement"
+      },
+      {
+        "source": "/getNewsArticle",
+        "function": "getNewsArticle"
+      },
+      {
+        "source": "/getPublishedNewsArticle",
+        "function": "getPublishedNewsArticle"
+      },
+      {
+        "source": "/updateNewsStatus",
+        "function": "updateNewsStatus"
+      },
+      {
+        "source": "/deleteNewsArticle",
+        "function": "deleteNewsArticle"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }
     ]
+  },
+  "storage": {
+    "rules": "storage.rules"
   }
 }

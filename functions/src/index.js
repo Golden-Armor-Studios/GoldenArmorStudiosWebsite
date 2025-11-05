@@ -47,9 +47,9 @@ const guessExtensionFromContentType = (contentType = "") => {
 };
 
 const sanitizeFileName = (value, fallback = "file") => {
- if (typeof value !== "string" || !value.trim()) {
-  return fallback;
- }
+	if (typeof value !== "string" || !value.trim()) {
+		return fallback;
+	}
 
  return value
   .trim()
@@ -716,36 +716,88 @@ exports.createNewsArticle = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError("invalid-argument", "Rich text content is required.");
 	}
 
-	const newsRef = admin.firestore().collection("news").doc();
+	const providedId = typeof payload.id === "string" && payload.id.trim().length ? payload.id.trim() : null;
+	const newsCollection = admin.firestore().collection("news");
+	const newsRef = providedId
+		? newsCollection.doc(providedId)
+		: newsCollection.doc();
 	const newsId = newsRef.id;
 	let contentHtml = rawContent;
+	let existingData = {};
 
-	const coverUpload = await uploadImageToStorage(newsId, payload.coverImage);
-
-	const inlineImagesPayload = Array.isArray(payload.images) ? payload.images : [];
-	const inlineUploads = [];
-
-	for (let index = 0; index < inlineImagesPayload.length; index += 1) {
-		const imagePayload = inlineImagesPayload[index];
-		const uploadResult = await uploadImageToStorage(newsId, imagePayload);
-		if (!uploadResult) {
-			continue;
+	if (providedId) {
+		const existingSnapshot = await newsRef.get();
+		if (existingSnapshot.exists) {
+			existingData = existingSnapshot.data() || {};
 		}
+	}
 
+	const coverPayload = typeof payload.coverImage === "object" && payload.coverImage !== null ? payload.coverImage : null;
+	if (!coverPayload) {
+		throw new functions.https.HttpsError("invalid-argument", "A cover image is required.");
+	}
+
+	let coverImageMeta = null;
+	if (coverPayload.downloadUrl && coverPayload.storagePath) {
+		coverImageMeta = {
+			downloadUrl: coverPayload.downloadUrl,
+			storagePath: coverPayload.storagePath,
+			contentType: coverPayload.contentType || "image/jpeg",
+			fileName: coverPayload.fileName || null
+		};
+	} else {
+		coverImageMeta = await uploadImageToStorage(newsId, coverPayload);
+	}
+
+	const mediaEntries = [];
+
+	if (Array.isArray(payload.media)) {
+		for (const entry of payload.media) {
+			if (!entry || typeof entry !== "object") continue;
+			if (entry.downloadUrl && entry.storagePath) {
+				mediaEntries.push({
+					type: entry.type === "video" ? "video" : "image",
+					downloadUrl: entry.downloadUrl,
+					storagePath: entry.storagePath,
+					contentType: entry.contentType || null,
+					fileName: entry.fileName || null
+				});
+			} else if (entry.data) {
+				const uploaded = await uploadImageToStorage(newsId, entry);
+				if (uploaded) {
+					mediaEntries.push({
+						type: "image",
+						...uploaded
+					});
+				}
+			}
+		}
+	}
+
+	const legacyImages = Array.isArray(payload.images) ? payload.images : [];
+	const inlineUploads = [];
+	for (let index = 0; index < legacyImages.length; index += 1) {
+		const imagePayload = legacyImages[index];
+		const uploadResult = await uploadImageToStorage(newsId, imagePayload);
+		if (!uploadResult) continue;
 		const placeholder = typeof imagePayload?.placeholder === "string" ? imagePayload.placeholder : null;
 		if (placeholder) {
 			contentHtml = contentHtml.split(placeholder).join(uploadResult.downloadUrl);
 		}
-
-		inlineUploads.push({
+		const legacyEntry = {
 			...uploadResult,
 			placeholder,
 			order: index
+		};
+		inlineUploads.push(legacyEntry);
+		mediaEntries.push({
+			type: "image",
+			...uploadResult
 		});
 	}
 
 	const timestamps = {
-		createdAt: admin.firestore.FieldValue.serverTimestamp(),
+		createdAt: existingData.createdAt || admin.firestore.FieldValue.serverTimestamp(),
 		updatedAt: admin.firestore.FieldValue.serverTimestamp()
 	};
 
@@ -754,14 +806,17 @@ exports.createNewsArticle = functions.https.onCall(async (data, context) => {
 		contentHtml,
 		summary: summary || null,
 		status,
-		coverImage: coverUpload,
+		coverImage: coverImageMeta,
+		media: mediaEntries,
 		inlineImages: inlineUploads,
 		createdBy: context.auth.uid,
+		likesCount: Number.isFinite(existingData.likesCount) ? existingData.likesCount : 0,
+		commentsCount: Number.isFinite(existingData.commentsCount) ? existingData.commentsCount : 0,
 		...timestamps
 	};
 
 	if (status === "published") {
-		articleData.publishedAt = admin.firestore.FieldValue.serverTimestamp();
+		articleData.publishedAt = existingData.publishedAt || admin.firestore.FieldValue.serverTimestamp();
 	}
 
 	await newsRef.set(articleData);
@@ -769,8 +824,8 @@ exports.createNewsArticle = functions.https.onCall(async (data, context) => {
 	return {
 		id: newsId,
 		newsId,
-		coverImage: coverUpload,
-		inlineImages: inlineUploads
+		coverImage: coverImageMeta,
+		media: mediaEntries
 	};
 });
 
@@ -801,3 +856,14 @@ exports.getDonorProfiles = functions.https.onCall(async () => {
 		throw new functions.https.HttpsError("internal", "Unable to load donor profiles.");
 	}
 });
+const newsHandlers = require('./news');
+exports.listNewsArticles = newsHandlers.listNewsArticles;
+exports.listPublishedNews = newsHandlers.listPublishedNews;
+exports.addNewsComment = newsHandlers.addNewsComment;
+exports.getPublishedNewsComments = newsHandlers.getPublishedNewsComments;
+exports.toggleNewsLike = newsHandlers.toggleNewsLike;
+exports.getNewsEngagement = newsHandlers.getNewsEngagement;
+exports.updateNewsStatus = newsHandlers.updateNewsStatus;
+exports.getNewsArticle = newsHandlers.getNewsArticle;
+exports.getPublishedNewsArticle = newsHandlers.getPublishedNewsArticle;
+exports.deleteNewsArticle = newsHandlers.deleteNewsArticle;

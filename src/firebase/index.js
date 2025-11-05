@@ -3,6 +3,7 @@ import { getAnalytics, isSupported as isAnalyticsSupported } from 'firebase/anal
 import { browserLocalPersistence, getAuth, setPersistence } from 'firebase/auth'
 import { getFunctions } from 'firebase/functions'
 import { getFirestore } from 'firebase/firestore'
+import { getStorage } from 'firebase/storage'
 
 const firebaseConfig = {
 	apiKey: 'AIzaSyAFTqz2BdQPiYkjl8qHh5OXJeL324Ldjkc',
@@ -40,5 +41,6 @@ if (typeof window !== 'undefined') {
 // Route callable functions through the custom API domain instead of the default Google endpoint.
 const functions = getFunctions(firebaseApp, 'https://api.goldenarmorstudio.art')
 const db = getFirestore(firebaseApp)
+const storage = getStorage(firebaseApp, 'gs://goldenarmorstudios.firebasestorage.app')
 
-export { firebaseApp, analytics, auth, functions, db }
+export { firebaseApp, analytics, auth, functions, db, storage }

@@ -28,8 +28,9 @@
 						<img class="home-icon" src="/golden-armor.png" alt="Golden Armor Studio crest">
 						<span>Home</span>
 					</RouterLink>
-					<RouterLink v-if="isAuthenticated" class="nav-link" to="/dashboard" @click="closeNav" @mouseenter="handleNavHover" @focus="handleNavHover">Dashboard</RouterLink>
-					<RouterLink v-if="!isAuthenticated" class="nav-link" to="/login" @click="closeNav" @mouseenter="handleNavHover" @focus="handleNavHover">Login</RouterLink>
+                    <RouterLink class="nav-link" to="/news" @click="closeNav" @mouseenter="handleNavHover" @focus="handleNavHover">News</RouterLink>
+                    <RouterLink v-if="isAuthenticated" class="nav-link" to="/dashboard" @click="closeNav" @mouseenter="handleNavHover" @focus="handleNavHover">Dashboard</RouterLink>
+                    <RouterLink v-if="!isAuthenticated" class="nav-link" to="/login" @click="closeNav" @mouseenter="handleNavHover" @focus="handleNavHover">Login</RouterLink>
 					<div
 						class="projects-dropdown"
 						ref="projectsRef"
@@ -78,11 +79,11 @@
 							<RouterLink class="dropdown-link" to="/join-team" @click="closeNavAndCommunity">Join our Team</RouterLink>
 						</div>
 					</div>
-					<div
-						v-if="isDeveloper"
-						class="developer-dropdown"
-						ref="developerRef"
-					>
+		<div
+			v-if="isDeveloper"
+			class="developer-dropdown"
+			ref="developerRef"
+		>
 						<button
 							type="button"
 							class="nav-link projects-toggle"
@@ -95,26 +96,19 @@
 						>
 							Developer
 						</button>
-					<div
-						v-if="isDeveloperOpen"
-						class="dropdown-menu"
-					>
-					<RouterLink
-						class="dropdown-link"
-						to="/dev-tools"
-						@click="closeNavAndDeveloper"
-					>
-						Dev Tools
-					</RouterLink>
-					<RouterLink
-						class="dropdown-link"
-						to="/news-editor"
-						@click="closeNavAndDeveloper"
-					>
-						News Editor
-					</RouterLink>
-					</div>
-					</div>
+		<div
+			v-if="isDeveloperOpen"
+			class="dropdown-menu"
+		>
+		<RouterLink
+			class="dropdown-link"
+			to="/dev-tools"
+			@click="closeNavAndDeveloper"
+		>
+			Dev Tools
+		</RouterLink>
+		</div>
+		</div>
 					<div
 						v-if="isAdmin"
 						class="admin-dropdown"
@@ -132,13 +126,15 @@
 						>
 							Admin
 						</button>
-						<div
-							v-if="isAdminOpen"
-							class="dropdown-menu"
-						>
-							<RouterLink class="dropdown-link" to="/devs" @click="closeNavAndAdmin">Team Admin</RouterLink>
-						</div>
-					</div>
+		<div
+			v-if="isAdminOpen"
+			class="dropdown-menu"
+		>
+			<RouterLink class="dropdown-link" to="/devs" @click="closeNavAndAdmin">Team Admin</RouterLink>
+			<RouterLink class="dropdown-link" to="/manage-news" @click="closeNavAndAdmin">Manage News</RouterLink>
+			<RouterLink class="dropdown-link" to="/news-editor" @click="closeNavAndAdmin">News Editor</RouterLink>
+		</div>
+	</div>
 				</div>
 
 				<div v-if="isAuthenticated" ref="menuRef" class="user-menu">

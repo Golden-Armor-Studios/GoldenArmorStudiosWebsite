@@ -1,0 +1,11 @@
+*** Begin Patch
+*** Update File: functions/src/index.js
+@@
+-	const newsRef = admin.firestore().collection("news").doc();
+-	const newsId = newsRef.id;
++	const providedId = typeof payload.id === "string" && payload.id.trim().length ? payload.id.trim() : null;
++	const newsRef = providedId
++		? admin.firestore().collection("news").doc(providedId)
++		: admin.firestore().collection("news").doc();
++	const newsId = newsRef.id;
+*** End Patch
