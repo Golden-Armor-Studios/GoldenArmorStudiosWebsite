@@ -79,6 +79,14 @@
         "function": "toggleNewsLike"
       },
       {
+        "source": "/toggleNewsCommentLike",
+        "function": "toggleNewsCommentLike"
+      },
+      {
+        "source": "/toggleNewsCommentFlag",
+        "function": "toggleNewsCommentFlag"
+      },
+      {
         "source": "/getNewsEngagement",
         "function": "getNewsEngagement"
       },
