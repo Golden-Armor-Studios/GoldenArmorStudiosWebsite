@@ -232,7 +232,15 @@
             </div>
           </article>
 
-          <article class="preview-detail">
+          <article
+            ref="previewDetailRef"
+            class="preview-detail"
+            :class="{ 'preview-detail--dragging': isPreviewDetailDragging }"
+            @pointerdown="handlePreviewDetailPointerDown"
+            @pointermove="handlePreviewDetailPointerMove"
+            @pointerup="handlePreviewDetailPointerUp"
+            @pointercancel="handlePreviewDetailPointerUp"
+          >
             <header class="detail-header">
               <div>
                 <p class="detail-label">{{ previewTimestamp }}</p>
@@ -270,7 +278,19 @@
             <div class="detail-cover" :class="{ 'detail-cover--empty': !coverPreviewUrl }">
               <img v-if="coverPreviewUrl" :src="coverPreviewUrl" alt="Detail cover" />
             </div>
-            <main class="detail-content" v-html="contentHtml"></main>
+            <main class="detail-content">
+              <div class="detail-content__html" v-html="previewContentHtml"></div>
+              <div v-if="previewVideos.length" class="detail-content__videos">
+                <NewsVideoPlayer
+                  v-for="video in previewVideos"
+                  :key="video.downloadUrl || video.storagePath"
+                  :src="video.downloadUrl"
+                  :poster="video.poster || null"
+                  :title="title || 'Editor Preview'"
+                  context="Editor"
+                />
+              </div>
+            </main>
           </article>
         </div>
       </aside>
@@ -279,12 +299,13 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { httpsCallable } from 'firebase/functions'
 import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
 import { functions, storage } from '../firebase'
 import { FFmpeg } from '@ffmpeg/ffmpeg'
+import NewsVideoPlayer from '../components/NewsVideoPlayer.vue'
 
 const COVER_ASPECT_RATIO = 4 / 2.3 // width / height
 const COVER_OUTPUT_WIDTH = 1280
@@ -305,6 +326,8 @@ const videoInput = ref(null)
 const editor = ref(null)
 const cropStage = ref(null)
 const coverImage = ref(null)
+const previewDetailRef = ref(null)
+const isPreviewDetailDragging = ref(false)
 
 const isLoading = ref(false)
 const loadError = ref('')
@@ -321,10 +344,50 @@ const saveSuccess = ref('')
 
 const mediaItems = ref([])
 const coverMeta = ref(null)
+const previewDetailDragState = reactive({
+  active: false,
+  pointerId: null,
+  startX: 0,
+  startY: 0,
+  scrollLeft: 0,
+  scrollTop: 0
+})
+let previousBodyUserSelect = ''
 
 const activeVideo = ref(null)
 const videoWidthPct = ref(100)
 const videoControlsVisible = computed(() => Boolean(activeVideo.value))
+
+const extractVideosFromHtml = (html) => {
+  if (!html || typeof window === 'undefined') return []
+  const container = document.createElement('div')
+  container.innerHTML = html
+  return Array.from(container.querySelectorAll('video'))
+    .map((el) => {
+      const src = el.getAttribute('src')
+      if (!src) return null
+      return {
+        downloadUrl: src,
+        storagePath: el.dataset?.storagePath || null,
+        fileName: el.dataset?.fileName || null,
+        poster: el.getAttribute('poster') || null,
+        contentType: el.getAttribute('type') || null,
+        type: 'video'
+      }
+    })
+    .filter(Boolean)
+}
+
+const previewVideos = computed(() => {
+  const mediaVideos = (mediaItems.value || []).filter(
+    (item) => item && item.type === 'video' && item.downloadUrl
+  )
+  if (mediaVideos.length) {
+    return mediaVideos
+  }
+  return extractVideosFromHtml(contentHtml.value)
+})
+const isApplyingEditorContent = ref(false)
 
 const route = useRoute()
 
@@ -604,6 +667,124 @@ const truncatedSummary = computed(() => {
   return `${text.slice(0, 137)}…`
 })
 
+const previewContentHtml = computed(() => {
+  if (!contentHtml.value) return ''
+  if (typeof window === 'undefined') {
+    return contentHtml.value
+  }
+  const container = document.createElement('div')
+  container.innerHTML = contentHtml.value
+  container.querySelectorAll('figure.wysiwyg-video').forEach((node) => node.remove())
+  container.querySelectorAll('video').forEach((node) => node.remove())
+  return container.innerHTML
+})
+
+const activateVideoElement = (videoEl) => {
+  if (!videoEl || !editor.value?.contains(videoEl)) {
+    activeVideo.value = null
+    return
+  }
+  activeVideo.value = videoEl
+  const rawWidth = parseFloat(videoEl.style.maxWidth?.replace('%', '')) || 100
+  videoWidthPct.value = Math.min(100, Math.max(40, rawWidth))
+}
+
+const onEditorVideoPointer = (event) => {
+  if (!editor.value) return
+  const videoEl = event.currentTarget
+  if (!videoEl || !editor.value.contains(videoEl)) return
+  activateVideoElement(videoEl)
+  event.stopPropagation()
+  event.preventDefault()
+}
+
+const bindVideoSelection = (videoEl) => {
+  if (!videoEl || videoEl.dataset.videoSelectionBound === 'true') return
+  videoEl.dataset.videoSelectionBound = 'true'
+  videoEl.addEventListener('pointerdown', onEditorVideoPointer)
+  videoEl.addEventListener('click', onEditorVideoPointer)
+}
+
+const applyEditorContent = (html) => {
+  if (!editor.value) return
+  isApplyingEditorContent.value = true
+  editor.value.innerHTML = html || ''
+  prepareEditorVideos(editor.value)
+  decorateVideoFigures()
+  const release = () => {
+    isApplyingEditorContent.value = false
+  }
+  if (typeof requestAnimationFrame === 'function') {
+    requestAnimationFrame(release)
+  } else {
+    setTimeout(release, 0)
+  }
+}
+
+const handlePreviewDetailPointerDown = (event) => {
+  if (!previewDetailRef.value || (typeof event.button === 'number' && event.button !== 0)) {
+    return
+  }
+  const target = event.target
+  if (
+    target?.closest &&
+    target.closest('button, a, input, textarea, video, [role="button"], .news-video-player__controls')
+  ) {
+    return
+  }
+  previewDetailDragState.active = true
+  previewDetailDragState.pointerId = event.pointerId
+  previewDetailDragState.startX = event.clientX
+  previewDetailDragState.startY = event.clientY
+  previewDetailDragState.scrollLeft = previewDetailRef.value.scrollLeft
+  previewDetailDragState.scrollTop = previewDetailRef.value.scrollTop
+  previewDetailRef.value.setPointerCapture?.(event.pointerId)
+  if (typeof document !== 'undefined') {
+    previousBodyUserSelect = document.body.style.userSelect
+    document.body.style.userSelect = 'none'
+  }
+  isPreviewDetailDragging.value = true
+  window.addEventListener('pointerup', handlePreviewDetailPointerUp)
+  window.addEventListener('pointercancel', handlePreviewDetailPointerUp)
+  event.preventDefault()
+}
+
+const handlePreviewDetailPointerMove = (event) => {
+  if (
+    !previewDetailDragState.active ||
+    event.pointerId !== previewDetailDragState.pointerId ||
+    !previewDetailRef.value
+  ) {
+    return
+  }
+  const deltaX = event.clientX - previewDetailDragState.startX
+  const deltaY = event.clientY - previewDetailDragState.startY
+  previewDetailRef.value.scrollLeft = previewDetailDragState.scrollLeft - deltaX
+  previewDetailRef.value.scrollTop = previewDetailDragState.scrollTop - deltaY
+  event.preventDefault()
+}
+
+const handlePreviewDetailPointerUp = (event) => {
+  if (
+    !previewDetailDragState.active ||
+    (typeof event.pointerId === 'number' && event.pointerId !== previewDetailDragState.pointerId)
+  ) {
+    return
+  }
+  if (previewDetailRef.value?.hasPointerCapture?.(event.pointerId)) {
+    previewDetailRef.value.releasePointerCapture(event.pointerId)
+  }
+  previewDetailDragState.active = false
+  previewDetailDragState.pointerId = null
+  isPreviewDetailDragging.value = false
+  window.removeEventListener('pointerup', handlePreviewDetailPointerUp)
+  window.removeEventListener('pointercancel', handlePreviewDetailPointerUp)
+  if (typeof document !== 'undefined') {
+    document.body.style.userSelect = previousBodyUserSelect
+  }
+  previousBodyUserSelect = ''
+}
+
 const getEditorHtml = () => {
   if (!editor.value) return ''
   const clone = editor.value.cloneNode(true)
@@ -660,7 +841,7 @@ const resetEditor = () => {
   resetCoverState()
   nextTick(() => {
     if (editor.value) {
-      editor.value.innerHTML = ''
+      applyEditorContent('')
     }
   })
 }
@@ -930,6 +1111,53 @@ const ensureVideoHandles = (figureEl) => {
   }
 }
 
+const prepareEditorVideos = (rootEl) => {
+  if (!rootEl) return
+  const videos = Array.from(rootEl.querySelectorAll('video'))
+  videos.forEach((videoEl) => {
+    videoEl.setAttribute('controls', '')
+    videoEl.setAttribute('playsinline', '')
+    videoEl.setAttribute('webkit-playsinline', '')
+    videoEl.setAttribute('preload', videoEl.getAttribute('preload') || 'metadata')
+    videoEl.setAttribute('contenteditable', 'false')
+    videoEl.style.display = 'block'
+    videoEl.style.background = videoEl.style.background || 'rgba(0,0,0,0.2)'
+    if (!videoEl.style.maxWidth) {
+      videoEl.style.maxWidth = '100%'
+    }
+    if (!videoEl.style.width) {
+      videoEl.style.width = '100%'
+    }
+    if (!videoEl.style.margin) {
+      videoEl.style.margin = '0 auto'
+    }
+    const existingFigure = videoEl.closest('figure.wysiwyg-video')
+    if (!existingFigure) {
+      const figure = document.createElement('figure')
+      figure.className = 'wysiwyg-video'
+      const topHandle = document.createElement('div')
+      topHandle.className = 'video-insert-handle video-insert-handle--top'
+      topHandle.dataset.position = 'before'
+      const bottomHandle = document.createElement('div')
+      bottomHandle.className = 'video-insert-handle video-insert-handle--bottom'
+      bottomHandle.dataset.position = 'after'
+      const parent = videoEl.parentNode
+      if (!parent) return
+      parent.insertBefore(figure, videoEl)
+      figure.appendChild(topHandle)
+      figure.appendChild(videoEl)
+      figure.appendChild(bottomHandle)
+    }
+    const parentFigure = videoEl.closest('figure.wysiwyg-video')
+    if (parentFigure) {
+      parentFigure.style.margin = parentFigure.style.margin || '1.5rem 0'
+      parentFigure.style.textAlign = parentFigure.style.textAlign || 'center'
+    }
+    bindVideoSelection(videoEl)
+  })
+  rootEl.querySelectorAll('figure.wysiwyg-video').forEach((figure) => ensureVideoHandles(figure))
+}
+
 const decorateVideoFigures = () => {
   if (!editor.value) return
   editor.value.querySelectorAll('figure.wysiwyg-video').forEach((figure) => ensureVideoHandles(figure))
@@ -983,9 +1211,12 @@ const insertVideoIntoEditor = (meta) => {
   const inputEvent = new Event('input', { bubbles: true })
   editor.value.dispatchEvent(inputEvent)
   nextTick(() => {
+    if (editor.value) {
+      prepareEditorVideos(editor.value)
+      decorateVideoFigures()
+    }
     handleEditorInput()
     saveSelection()
-    decorateVideoFigures()
   })
 }
 
@@ -1004,7 +1235,7 @@ const updateActiveVideoWidth = () => {
   handleEditorInput()
 }
 
-const onEditorClick = (event) => {
+const handleEditorPointerEvent = (event) => {
   const handleEl = event.target?.closest('.video-insert-handle')
   if (handleEl && editor.value?.contains(handleEl)) {
     const figureEl = handleEl.closest('figure.wysiwyg-video')
@@ -1020,9 +1251,7 @@ const onEditorClick = (event) => {
     activeVideo.value = null
     return
   }
-  activeVideo.value = videoEl
-  const rawWidth = parseFloat(videoEl.style.maxWidth?.replace('%', '')) || 100
-  videoWidthPct.value = Math.min(100, Math.max(40, rawWidth))
+  activateVideoElement(videoEl)
 }
 
 const saveSelection = () => {
@@ -1067,6 +1296,7 @@ const applyHeading = () => {
 }
 
 const handleEditorInput = () => {
+  if (isApplyingEditorContent.value) return
   contentHtml.value = getEditorHtml()
 }
 
@@ -1136,23 +1366,24 @@ const loadArticleIfNeeded = async () => {
     title.value = article.title || ''
     contentHtml.value = article.contentHtml || ''
     mediaItems.value = Array.isArray(article.media) ? article.media : []
+    if ((!mediaItems.value || mediaItems.value.length === 0) && article.contentHtml) {
+      mediaItems.value = extractVideosFromHtml(article.contentHtml)
+    }
     coverMeta.value = article.coverImage || null
     if (article.coverImage?.downloadUrl) {
       coverPreviewUrl.value = article.coverImage.downloadUrl
       await hydrateCoverFromRemote(article.coverImage.downloadUrl, article.coverImage.fileName || 'cover')
     }
 
+    isLoading.value = false
     await nextTick()
     if (editor.value) {
-      editor.value.innerHTML = contentHtml.value
-      decorateVideoFigures()
-      handleEditorInput()
+      applyEditorContent(contentHtml.value)
     }
   } catch (error) {
     console.error(error)
     loadError.value = error.message || 'Unable to load article.'
     resetEditor()
-  } finally {
     isLoading.value = false
   }
 }
@@ -1207,9 +1438,26 @@ onBeforeUnmount(() => {
     URL.revokeObjectURL(coverState.displaySource)
   }
   if (editor.value) {
-    editor.value.removeEventListener('click', onEditorClick)
+    editor.value.removeEventListener('click', handleEditorPointerEvent)
+    editor.value.removeEventListener('pointerdown', handleEditorPointerEvent)
   }
   document.removeEventListener('click', handleDocumentClick)
+  window.removeEventListener('pointerup', handlePreviewDetailPointerUp)
+  window.removeEventListener('pointercancel', handlePreviewDetailPointerUp)
+  if (previewDetailDragState.active && previewDetailRef.value) {
+    if (
+      previewDetailDragState.pointerId !== null &&
+      previewDetailRef.value.hasPointerCapture?.(previewDetailDragState.pointerId)
+    ) {
+      previewDetailRef.value.releasePointerCapture(previewDetailDragState.pointerId)
+    }
+    previewDetailDragState.active = false
+    previewDetailDragState.pointerId = null
+  }
+  if (typeof document !== 'undefined') {
+    document.body.style.userSelect = previousBodyUserSelect
+  }
+  previousBodyUserSelect = ''
 })
 
 const handleDocumentClick = (event) => {
@@ -1220,9 +1468,18 @@ const handleDocumentClick = (event) => {
 
 nextTick(() => {
   if (editor.value) {
-    editor.value.addEventListener('click', onEditorClick)
+    editor.value.addEventListener('click', handleEditorPointerEvent)
+    editor.value.addEventListener('pointerdown', handleEditorPointerEvent)
   }
   document.addEventListener('click', handleDocumentClick)
+})
+
+onMounted(() => {
+  nextTick(() => {
+    if (editor.value) {
+      applyEditorContent(contentHtml.value)
+    }
+  })
 })
 </script>
 
@@ -1274,7 +1531,8 @@ nextTick(() => {
   background: rgba(17, 27, 39, 0.92);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 20px;
-  padding: 2rem;
+  padding: 20px;
+  box-sizing: border-box;
   box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
   display: flex;
   flex-direction: column;
@@ -1290,7 +1548,6 @@ nextTick(() => {
 }
 
 .title-input {
-  width: 100%;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.14);
   background: rgba(13, 20, 30, 0.9);
@@ -1667,6 +1924,25 @@ nextTick(() => {
   color: rgba(240, 244, 248, 0.75);
 }
 
+.preview-content {
+  padding: 0 1.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.preview-content__videos,
+.detail-content__videos {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+}
+
+.preview-content__html :deep(video),
+.detail-content__html :deep(video) {
+  display: none;
+}
+
 .preview-meta {
   display: flex;
   align-items: center;
@@ -1698,33 +1974,51 @@ nextTick(() => {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
   display: flex;
   flex-direction: column;
-  overflow: hidden;
-  height: 560px;
+  align-items: stretch;
+  justify-content: flex-start;
+  gap: 0;
   width: 100%;
+  height: 560px;
+  overflow: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  cursor: grab;
+}
+
+.preview-detail::-webkit-scrollbar {
+  display: none;
+}
+
+.preview-detail--dragging {
+  cursor: grabbing;
 }
 
 .detail-header {
-  display: flex;
   justify-content: space-between;
   gap: 1rem;
-  padding: 1.25rem 1.5rem;
-  background: rgba(12, 20, 30, 0.95);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  padding: 1.2rem 1.5rem;
+  background: rgba(12, 20, 30, 0.94);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
 }
 
 .detail-header h3 {
-  margin-top: 0.4rem;
+  margin: 0.35rem 0 0;
+  line-height: 1.4;
 }
 
 .detail-label {
-  font-size: 0.85rem;
-  color: rgba(240, 244, 248, 0.6);
+  font-size: 0.82rem;
+  color: rgba(240, 244, 248, 0.65);
+  margin: 0;
 }
 
 .detail-engagement {
   display: flex;
-  align-items: flex-start;
-  gap: 0.75rem;
+  align-items: flex-end;
+  justify-content: flex-end;
+  gap: 0.85rem;
+  margin-bottom: 20px;
+  flex-shrink: 0;
 }
 
 .detail-cover {
@@ -1733,6 +2027,7 @@ nextTick(() => {
   align-items: center;
   justify-content: center;
   min-height: 180px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
 .detail-cover img {
@@ -1745,30 +2040,31 @@ nextTick(() => {
 }
 
 .detail-content {
-  flex: 1;
-  overflow-y: hidden;
-  padding: 1.25rem 1.5rem;
+  padding: 1.25rem 1.5rem 1.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  margin: 0;
 }
 
-.detail-content :deep(p) {
+.detail-content__html {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  margin: 0;
+}
+
+.detail-content__html :deep(p) {
   margin-bottom: 1rem;
   line-height: 1.6;
   font-size: 0.95rem;
 }
 
-.detail-content :deep(img) {
+.detail-content__html :deep(img) {
   display: block;
   max-width: 100%;
   border-radius: 14px;
   margin: 1rem 0;
-}
-
-.detail-content :deep(video) {
-  display: block;
-  max-width: 100%;
-  border-radius: 14px;
-  margin: 1.25rem auto;
-  height: auto;
 }
 
 @media (max-width: 768px) {

@@ -102,19 +102,22 @@ const uploadImageToStorage = async (newsId, payload) => {
 
  const storagePath = `${NEWS_STORAGE_PREFIX}/${newsId}/${decoded.fileName}`;
  const file = storageBucket.file(storagePath);
- const downloadToken = crypto.randomUUID();
 
  await file.save(decoded.buffer, {
   resumable: false,
   metadata: {
    contentType: decoded.contentType,
-   metadata: {
-    firebaseStorageDownloadTokens: downloadToken
-   }
+   cacheControl: "public, max-age=86400"
   }
  });
 
- const downloadUrl = `https://firebasestorage.googleapis.com/v0/b/${storageBucket.name}/o/${encodeURIComponent(storagePath)}?alt=media&token=${downloadToken}`;
+ try {
+  await file.makePublic();
+ } catch (error) {
+  functions.logger.warn("Failed to set public ACL for uploaded image", { newsId, storagePath, error });
+ }
+
+ const downloadUrl = file.publicUrl();
 
  return {
   storagePath: `gs://${storageBucket.name}/${storagePath}`,
@@ -760,7 +763,8 @@ exports.createNewsArticle = functions.https.onCall(async (data, context) => {
 					downloadUrl: entry.downloadUrl,
 					storagePath: entry.storagePath,
 					contentType: entry.contentType || null,
-					fileName: entry.fileName || null
+					fileName: entry.fileName || null,
+					poster: entry.poster || null
 				});
 			} else if (entry.data) {
 				const uploaded = await uploadImageToStorage(newsId, entry);
@@ -867,3 +871,4 @@ exports.updateNewsStatus = newsHandlers.updateNewsStatus;
 exports.getNewsArticle = newsHandlers.getNewsArticle;
 exports.getPublishedNewsArticle = newsHandlers.getPublishedNewsArticle;
 exports.deleteNewsArticle = newsHandlers.deleteNewsArticle;
+exports.renderNewsShare = newsHandlers.renderNewsShare;

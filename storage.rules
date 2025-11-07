@@ -21,6 +21,11 @@ service firebase.storage {
       allow write: if isAdmin();
     }
 
+    match /cover-final/{allPaths=**} {
+      allow read;  // published cover images
+      allow write: if isAdmin();
+    }
+
     match /{allPaths=**} {
       allow read, write: if false;
     }

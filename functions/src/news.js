@@ -5,10 +5,86 @@ const functions = require("firebase-functions");
 
 const NEWS_COLLECTION = "news";
 const ALLOWED_STATUSES = new Set(["draft", "published", "archived"]);
+const DEFAULT_ORIGIN = "https://goldenarmorstudio.art";
+const DEFAULT_IMAGE = `${DEFAULT_ORIGIN}/GoldenArmorStudio_WebPack/og-image.png`;
+const SITE_NAME = "Golden Armor Studio";
+const ARTICLE_CACHE_TTL_MS = 60 * 1000;
+const articleCache = new Map();
 
 const getNewsRef = (newsId) => admin.firestore().collection(NEWS_COLLECTION).doc(newsId);
 const getCommentsRef = (newsId) => getNewsRef(newsId).collection("comments");
 const getLikesRef = (newsId) => getNewsRef(newsId).collection("likes");
+
+const sanitizeArticleForCache = (articleData) => {
+  if (!articleData || typeof articleData !== "object") return null;
+  const sanitized = { ...articleData };
+  if ("likedByCurrentUser" in sanitized) {
+    delete sanitized.likedByCurrentUser;
+  }
+  return sanitized;
+};
+
+const getCachedArticle = (newsId, requirePublished = false) => {
+  const cached = articleCache.get(newsId);
+  if (!cached) return null;
+  if (Date.now() - cached.timestamp > ARTICLE_CACHE_TTL_MS) {
+    articleCache.delete(newsId);
+    return null;
+  }
+  if (requirePublished && (cached.data.status || "draft") !== "published") {
+    return null;
+  }
+  return { ...cached.data };
+};
+
+const setCachedArticle = (newsId, articleData) => {
+  if (!newsId || !articleData) return;
+  const sanitized = sanitizeArticleForCache(articleData);
+  if (!sanitized) return;
+  articleCache.set(newsId, {
+    timestamp: Date.now(),
+    data: sanitized
+  });
+};
+
+const clearArticleCache = (newsId) => {
+  if (newsId) {
+    articleCache.delete(newsId);
+  }
+};
+
+const formatArticleRecord = (snapshot) => {
+  if (!snapshot?.exists) return null;
+  const docData = snapshot.data() || {};
+  const rawMedia = Array.isArray(docData.media) ? docData.media : [];
+  const legacyMedia = Array.isArray(docData.assets) ? docData.assets :
+    Array.isArray(docData.attachments) ? docData.attachments :
+      Array.isArray(docData.images) ? docData.images :
+        Array.isArray(docData.inlineImages) ? docData.inlineImages : [];
+  const media = rawMedia.length ? rawMedia : legacyMedia;
+  const legacyCoverImage = docData.cover || docData.coverPhoto || docData.coverUrl || docData.heroImage || null;
+
+  return {
+    id: snapshot.id,
+    title: docData.title || "",
+    contentHtml: docData.contentHtml || "",
+    legacyContent: docData.content || docData.body || "",
+    summary: docData.summary || "",
+    status: docData.status || "draft",
+    coverImage: docData.coverImage || null,
+    legacyCoverImage,
+    media,
+    legacyMedia,
+    inlineImages: Array.isArray(docData.inlineImages) ? docData.inlineImages : [],
+    likesCount: Number.isFinite(docData.likesCount) ? docData.likesCount : 0,
+    commentsCount: Number.isFinite(docData.commentsCount) ? docData.commentsCount : 0,
+    createdAt: docData.createdAt || null,
+    updatedAt: docData.updatedAt || null,
+    publishedAt: docData.publishedAt || null,
+    createdBy: docData.createdBy || null,
+    likedByCurrentUser: docData.likedByCurrentUser || false
+  };
+};
 
 const ensureDeveloper = (context) => {
 	if (!context.auth || !Array.isArray(context.auth.token?.groups)) {
@@ -101,7 +177,8 @@ const updateNewsStatus = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError("invalid-argument", "Unsupported status value.");
 	}
 
-	const docRef = admin.firestore().collection(NEWS_COLLECTION).doc(id.trim());
+	const articleId = id.trim();
+	const docRef = getNewsRef(articleId);
 	await docRef.set(
 		{
 			status: normalizedStatus,
@@ -119,6 +196,17 @@ const updateNewsStatus = functions.https.onCall(async (data, context) => {
 		);
 	}
 
+	try {
+		const snapshot = await docRef.get();
+		if (snapshot.exists) {
+			setCachedArticle(articleId, formatArticleRecord(snapshot));
+		} else {
+			clearArticleCache(articleId);
+		}
+	} catch (error) {
+		functions.logger.warn("Failed to refresh cache after status update", { id: articleId, error });
+	}
+
 	return { success: true };
 });
 
@@ -130,42 +218,24 @@ const getNewsArticle = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError("invalid-argument", "A valid article ID is required.");
 	}
 
-	const docRef = admin.firestore().collection(NEWS_COLLECTION).doc(id.trim());
+	const articleId = id.trim();
+	const cached = getCachedArticle(articleId, false);
+	if (cached) {
+		return { article: cached };
+	}
+
+	const docRef = getNewsRef(articleId);
 	const snapshot = await docRef.get();
 
 	if (!snapshot.exists) {
 		throw new functions.https.HttpsError("not-found", "News article was not found.");
 	}
 
-	const docData = snapshot.data() || {};
-	const rawMedia = Array.isArray(docData.media) ? docData.media : [];
-	const legacyMedia = Array.isArray(docData.assets) ? docData.assets :
-		Array.isArray(docData.attachments) ? docData.attachments :
-			Array.isArray(docData.images) ? docData.images :
-				Array.isArray(docData.inlineImages) ? docData.inlineImages : [];
-	const media = rawMedia.length ? rawMedia : legacyMedia;
-	const legacyCoverImage = docData.cover || docData.coverPhoto || docData.coverUrl || docData.heroImage || null;
+	const formatted = formatArticleRecord(snapshot);
+	setCachedArticle(articleId, formatted);
 
 	return {
-		article: {
-			id: snapshot.id,
-			title: docData.title || "",
-			contentHtml: docData.contentHtml || "",
-			legacyContent: docData.content || docData.body || "",
-			summary: docData.summary || "",
-			status: docData.status || "draft",
-			coverImage: docData.coverImage || null,
-			legacyCoverImage,
-			media,
-			legacyMedia,
-			inlineImages: Array.isArray(docData.inlineImages) ? docData.inlineImages : [],
-			likesCount: Number.isFinite(docData.likesCount) ? docData.likesCount : 0,
-			commentsCount: Number.isFinite(docData.commentsCount) ? docData.commentsCount : 0,
-			createdAt: docData.createdAt || null,
-			updatedAt: docData.updatedAt || null,
-			publishedAt: docData.publishedAt || null,
-			createdBy: docData.createdBy || null
-		}
+		article: formatted
 	};
 });
 
@@ -175,55 +245,37 @@ const getPublishedNewsArticle = functions.https.onCall(async (data, context) => 
 		throw new functions.https.HttpsError("invalid-argument", "A valid article ID is required.");
 	}
 
-	const docRef = getNewsRef(id.trim());
-	const snapshot = await docRef.get();
+	const newsId = id.trim();
+	let baseArticle = getCachedArticle(newsId, true);
 
-	if (!snapshot.exists) {
-		throw new functions.https.HttpsError("not-found", "News article was not found.");
-	}
+	if (!baseArticle) {
+		const snapshot = await getNewsRef(newsId).get();
+		if (!snapshot.exists) {
+			throw new functions.https.HttpsError("not-found", "News article was not found.");
+		}
 
-	const docData = snapshot.data() || {};
-	if ((docData.status || "draft") !== "published") {
-		throw new functions.https.HttpsError("permission-denied", "This news article is not available.");
+		const formatted = formatArticleRecord(snapshot);
+		if ((formatted.status || "draft") !== "published") {
+			throw new functions.https.HttpsError("permission-denied", "This news article is not available.");
+		}
+
+		setCachedArticle(newsId, formatted);
+		baseArticle = formatted;
 	}
 
 	let likedByCurrentUser = false;
 	if (context.auth?.uid) {
 		try {
-			const likeDoc = await getLikesRef(id.trim()).doc(context.auth.uid).get();
+			const likeDoc = await getLikesRef(newsId).doc(context.auth.uid).get();
 			likedByCurrentUser = likeDoc.exists;
 		} catch (error) {
-			functions.logger.warn("Failed to resolve like status for user", { uid: context.auth.uid, id, error });
+			functions.logger.warn("Failed to resolve like status for user", { uid: context.auth.uid, id: newsId, error });
 		}
 	}
 
-	const rawMedia = Array.isArray(docData.media) ? docData.media : [];
-	const legacyMedia = Array.isArray(docData.assets) ? docData.assets :
-		Array.isArray(docData.attachments) ? docData.attachments :
-			Array.isArray(docData.images) ? docData.images :
-				Array.isArray(docData.inlineImages) ? docData.inlineImages : [];
-	const media = rawMedia.length ? rawMedia : legacyMedia;
-	const legacyCoverImage = docData.cover || docData.coverPhoto || docData.coverUrl || docData.heroImage || null;
-
 	return {
 		article: {
-			id: snapshot.id,
-			title: docData.title || "",
-			contentHtml: docData.contentHtml || "",
-			legacyContent: docData.content || docData.body || "",
-			summary: docData.summary || "",
-			status: docData.status || "published",
-			coverImage: docData.coverImage || null,
-			legacyCoverImage,
-			media,
-			legacyMedia,
-			inlineImages: Array.isArray(docData.inlineImages) ? docData.inlineImages : [],
-			likesCount: Number.isFinite(docData.likesCount) ? docData.likesCount : 0,
-			commentsCount: Number.isFinite(docData.commentsCount) ? docData.commentsCount : 0,
-			createdAt: docData.createdAt || null,
-			updatedAt: docData.updatedAt || null,
-			publishedAt: docData.publishedAt || null,
-			createdBy: docData.createdBy || null,
+			...baseArticle,
 			likedByCurrentUser
 		}
 	};
@@ -292,6 +344,18 @@ const addNewsComment = functions.https.onCall(async (data, context) => {
 
 	const createdSnapshot = await commentRef.get();
 	createdAt = createdSnapshot.data()?.createdAt || admin.firestore.FieldValue.serverTimestamp();
+
+	try {
+		const cachedArticle = getCachedArticle(newsId);
+		if (cachedArticle) {
+			setCachedArticle(newsId, {
+				...cachedArticle,
+				commentsCount
+			});
+		}
+	} catch (error) {
+		functions.logger.debug("Failed to update cached article after comment", { id: newsId, error });
+	}
 
 	return {
 		comment: {
@@ -392,6 +456,18 @@ const toggleNewsLike = functions.https.onCall(async (data, context) => {
 		result.likesCount = Math.max(0, newLikes);
 	});
 
+	try {
+		const cachedArticle = getCachedArticle(newsId);
+		if (cachedArticle) {
+			setCachedArticle(newsId, {
+				...cachedArticle,
+				likesCount: result.likesCount
+			});
+		}
+	} catch (error) {
+		functions.logger.debug("Failed to update cached article after like toggle", { id: newsId, uid: context.auth.uid, error });
+	}
+
 	return result;
 });
 
@@ -430,7 +506,8 @@ const deleteNewsArticle = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError("invalid-argument", "A valid article ID is required.");
 	}
 
-	const docRef = admin.firestore().collection(NEWS_COLLECTION).doc(id.trim());
+	const articleId = id.trim();
+	const docRef = getNewsRef(articleId);
 	const snapshot = await docRef.get();
 
 	if (!snapshot.exists) {
@@ -474,8 +551,224 @@ const deleteNewsArticle = functions.https.onCall(async (data, context) => {
 	await Promise.all(inlineImages.map((item) => deleteFileIfExists(item.storagePath)));
 
 	await docRef.delete();
+	clearArticleCache(articleId);
 
 	return { success: true };
+});
+
+const stripHtmlToPlainText = (value = "") => {
+	if (typeof value !== "string" || !value.trim()) return "";
+	return value
+		.replace(/<\s*\/?\s*script[^>]*>/gi, "")
+		.replace(/<\/?(style|script)[^>]*>/gi, "")
+		.replace(/<br\s*\/?>/gi, "\n")
+		.replace(/<\/p>/gi, "\n")
+		.replace(/<[^>]+>/g, "")
+		.replace(/\s+/g, " ")
+		.trim();
+};
+
+const buildShareHtml = (meta) => {
+  const {
+    title,
+    description,
+    image,
+    url,
+    redirectUrl,
+    status = "draft",
+    noindex = false,
+    storageKey,
+    payload
+  } = meta;
+
+	return `<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta http-equiv="X-UA-Compatible" content="IE=edge">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>${title}</title>
+    <meta name="description" content="${description}">
+    <meta property="og:title" content="${title}">
+    <meta property="og:description" content="${description}">
+    <meta property="og:type" content="article">
+    <meta property="og:url" content="${url}">
+    <meta property="og:image" content="${image}">
+    <meta property="og:site_name" content="${SITE_NAME}">
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:title" content="${title}">
+    <meta name="twitter:description" content="${description}">
+    <meta name="twitter:image" content="${image}">
+    <meta name="twitter:site" content="@GoldenArmorSt">
+    ${noindex ? '<meta name="robots" content="noindex, nofollow">' : ""}
+    <link rel="canonical" href="${url}">
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+        margin: 0;
+        padding: 2.5rem 1.5rem;
+        background: #04070c;
+        color: #f6f8fb;
+        display: flex;
+        justify-content: center;
+      }
+      .container {
+        max-width: 640px;
+        text-align: center;
+      }
+      h1 {
+        font-size: 1.8rem;
+        margin-bottom: 1rem;
+      }
+      p {
+        line-height: 1.5;
+        color: rgba(246, 248, 251, 0.8);
+      }
+      img {
+        width: 100%;
+        max-width: 512px;
+        border-radius: 18px;
+        margin: 2rem auto;
+        display: block;
+      }
+      .status {
+        display: inline-block;
+        padding: 0.35rem 0.75rem;
+        border-radius: 999px;
+        background: rgba(78, 224, 128, 0.18);
+        border: 1px solid rgba(78, 224, 128, 0.42);
+        color: #4ee080;
+        font-size: 0.85rem;
+        margin-bottom: 1rem;
+      }
+      .cta {
+        margin-top: 2rem;
+        display: inline-flex;
+        align-items: center;
+        gap: 0.5rem;
+        font-weight: 600;
+        color: #4ee080;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <div class="status">Status: ${status}</div>
+      <h1>${title}</h1>
+      <p>${description}</p>
+      <img src="${image}" alt="Article cover">
+      <p>Loading the latest version of this article…</p>
+      <a class="cta" href="${redirectUrl}">Continue to article →</a>
+    </div>
+    <script>
+      ${storageKey && payload ? `
+      try {
+        window.sessionStorage.setItem('${storageKey}', '${payload}');
+      } catch (e) {}
+      ` : ""}
+      try {
+        window.location.replace("${redirectUrl}");
+      } catch (e) {
+        window.location.href = "${redirectUrl}";
+      }
+    </script>
+  </body>
+</html>`;
+};
+
+const renderNewsShare = functions.https.onRequest(async (req, res) => {
+	try {
+		const idMatch = req.path.match(/\/news\/([^/?#]+)/i);
+		const newsId = idMatch ? idMatch[1] : null;
+		if (!newsId) {
+			res.status(400).send("Missing article identifier.");
+			return;
+		}
+
+		const snapshot = await getNewsRef(newsId).get();
+		if (!snapshot.exists) {
+		res.status(404).send(buildShareHtml({
+			title: `${SITE_NAME} | Not Found`,
+			description: "The requested article could not be located.",
+			image: DEFAULT_IMAGE,
+			url: `${DEFAULT_ORIGIN}/news/${newsId}`,
+			redirectUrl: `${DEFAULT_ORIGIN}/news`,
+			status: "not-found",
+			noindex: true
+		}));
+		return;
+	}
+
+	const data = snapshot.data() || {};
+	const rawMedia = Array.isArray(data.media) ? data.media : [];
+	const legacyMedia = Array.isArray(data.assets) ? data.assets :
+		Array.isArray(data.attachments) ? data.attachments :
+			Array.isArray(data.images) ? data.images :
+				Array.isArray(data.inlineImages) ? data.inlineImages : [];
+	const media = rawMedia.length ? rawMedia : legacyMedia;
+	const legacyCoverImage = data.cover || data.coverPhoto || data.coverUrl || data.heroImage || null;
+	const coverImage = data.coverImage?.downloadUrl || data.coverUrl || data.cover || DEFAULT_IMAGE;
+	const descriptionSource =
+		data.summary ||
+		stripHtmlToPlainText(data.contentHtml) ||
+		stripHtmlToPlainText(data.content) ||
+		stripHtmlToPlainText(data.body) ||
+		"A new update from Golden Armor Studio.";
+
+	const description = descriptionSource.length > 200 ? `${descriptionSource.slice(0, 197)}…` : descriptionSource;
+	const articlePayload = {
+		id: snapshot.id,
+		title: data.title || "",
+		contentHtml: data.contentHtml || "",
+		legacyContent: data.content || data.body || "",
+		summary: data.summary || "",
+		status: data.status || "draft",
+		coverImage: data.coverImage || null,
+		legacyCoverImage,
+		media,
+		legacyMedia,
+		inlineImages: Array.isArray(data.inlineImages) ? data.inlineImages : [],
+		likesCount: Number.isFinite(data.likesCount) ? data.likesCount : 0,
+		commentsCount: Number.isFinite(data.commentsCount) ? data.commentsCount : 0,
+		createdAt: data.createdAt || null,
+		updatedAt: data.updatedAt || null,
+		publishedAt: data.publishedAt || null,
+		createdBy: data.createdBy || null
+	};
+	setCachedArticle(newsId, articlePayload);
+	const storageKey = `gas:news:${newsId}`;
+	const payload = Buffer.from(JSON.stringify({
+		article: articlePayload,
+		cachedAt: Date.now()
+	})).toString("base64");
+
+	const responseHtml = buildShareHtml({
+		title: data.title ? `${data.title} | ${SITE_NAME}` : SITE_NAME,
+		description,
+		image: coverImage,
+		url: `${DEFAULT_ORIGIN}/news/${newsId}`,
+		redirectUrl: `${DEFAULT_ORIGIN}/app/news/${newsId}`,
+		storageKey,
+		payload,
+		status: data.status || "draft",
+		noindex: (data.status || "draft") !== "published"
+	});
+
+		res.set("Cache-Control", "public, max-age=300, s-maxage=600");
+		res.status(200).send(responseHtml);
+	} catch (error) {
+		functions.logger.error("renderNewsShare failed", error);
+		res.status(500).send(buildShareHtml({
+			title: `${SITE_NAME} | Error`,
+			description: "We ran into an issue while loading this article.",
+			image: DEFAULT_IMAGE,
+			url: `${DEFAULT_ORIGIN}`,
+			redirectUrl: `${DEFAULT_ORIGIN}/news`,
+			status: "error",
+			noindex: true
+		}));
+	}
 });
 
 module.exports = {
@@ -489,5 +782,6 @@ module.exports = {
 	getNewsArticle,
 	getPublishedNewsArticle,
 	deleteNewsArticle,
-	ensureDeveloper
+	ensureDeveloper,
+	renderNewsShare
 };

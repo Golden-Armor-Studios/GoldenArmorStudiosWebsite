@@ -99,6 +99,10 @@
         "function": "deleteNewsArticle"
       },
       {
+        "source": "/news/**",
+        "function": "renderNewsShare"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

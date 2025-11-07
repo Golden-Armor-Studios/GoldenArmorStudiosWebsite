@@ -86,8 +86,22 @@
       </div>
       <div class="article-shell">
         <h1>{{ article.title }}</h1>
-        <p v-if="article.summary" class="summary">{{ article.summary }}</p>
-        <div class="content" ref="contentRef" v-html="article.contentHtml"></div>
+        <div class="content">
+          <template v-for="segment in articleContentSegments" :key="segment.id">
+            <div
+              v-if="segment.type === 'html'"
+              class="content-segment"
+              v-html="segment.html"
+            ></div>
+            <NewsVideoPlayer
+              v-else
+              :src="segment.src"
+              :poster="segment.poster || null"
+              :title="article.title"
+              context="News Detail"
+            />
+          </template>
+        </div>
       </div>
     </article>
 
@@ -144,12 +158,13 @@
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '../firebase'
 import { useStore } from 'vuex'
 import { useToast } from 'vue-toastification'
+import NewsVideoPlayer from '../components/NewsVideoPlayer.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -167,11 +182,90 @@ const isSubmittingComment = ref(false)
 const likesCount = ref(0)
 const hasLiked = ref(false)
 const isTogglingLike = ref(false)
-const contentRef = ref(null)
+const articleContentSegments = computed(() => {
+  const html = article.value?.contentHtml
+  if (!html || typeof window === 'undefined') return []
+  const root = document.createElement('div')
+  root.innerHTML = html
+  const placeholderPrefix = '__VIDEO_SEGMENT__'
+  const videoSegments = []
+
+  Array.from(root.querySelectorAll('figure.wysiwyg-video, video')).forEach((node) => {
+    const videoEl = node.nodeName === 'VIDEO' ? node : node.querySelector('video')
+    if (!videoEl) return
+    const src = videoEl.getAttribute('src')
+    if (!src) return
+    const marker = `${placeholderPrefix}${videoSegments.length}__`
+    const textNode = document.createTextNode(marker)
+    node.parentNode?.insertBefore(textNode, node)
+    node.parentNode?.removeChild(node)
+    videoSegments.push({
+      src,
+      poster: videoEl.getAttribute('poster') || null,
+      id: `video-${videoSegments.length}`,
+      marker
+    })
+  })
+
+  const htmlString = root.innerHTML
+  const regex = new RegExp(`${placeholderPrefix}(\\d+)__`, 'g')
+  const segments = []
+  let lastIndex = 0
+  let match
+
+  const pushHtml = (chunk) => {
+    const trimmed = chunk.trim()
+    if (trimmed) {
+      segments.push({
+        type: 'html',
+        html: trimmed,
+        id: `html-${segments.length}`
+      })
+    }
+  }
+
+  while ((match = regex.exec(htmlString)) !== null) {
+    const chunk = htmlString.slice(lastIndex, match.index)
+    pushHtml(chunk)
+    const videoIndex = Number(match[1])
+    const videoData = videoSegments[videoIndex]
+    if (videoData) {
+      segments.push({
+        type: 'video',
+        src: videoData.src,
+        poster: videoData.poster,
+        id: videoData.id
+      })
+    }
+    lastIndex = regex.lastIndex
+  }
+
+  const tail = htmlString.slice(lastIndex)
+  pushHtml(tail)
+
+  return segments
+})
 
 const isAuthenticated = computed(() => store.getters['user/isAuthenticated'])
 const currentUser = computed(() => store.state.user?.profile || null)
 const currentDisplayName = computed(() => currentUser.value?.displayName || currentUser.value?.email || 'You')
+
+const analyticsCategory = computed(() => {
+  const title = article.value?.title
+  if (typeof title === 'string' && title.trim()) {
+    return title.trim()
+  }
+  return 'News Article'
+})
+
+const trackEngagementEvent = (action, params = {}) => {
+  if (typeof window === 'undefined' || typeof window.gtag !== 'function') return
+  window.gtag('event', action, {
+    event_category: analyticsCategory.value,
+    event_label: article.value?.id || 'unknown-article',
+    ...params
+  })
+}
 
 const toDate = (value) => {
   if (!value) return null
@@ -268,8 +362,6 @@ const loadArticle = async () => {
       comments.value = []
       isLoadingComments.value = false
     }
-    await nextTick()
-    enhanceContentMedia()
   } catch (err) {
     console.error(err)
     error.value = err.message || 'Failed to load article.'
@@ -334,8 +426,10 @@ const toggleLike = async () => {
     if (!isAuthenticated.value) {
       toast.info('Sign in to like this article.')
     }
+    trackEngagementEvent('like_click', { authenticated: isAuthenticated.value ? 'yes' : 'no' })
     return
   }
+  trackEngagementEvent('like_click', { authenticated: 'yes', current_state: hasLiked.value ? 'liked' : 'unliked' })
   isTogglingLike.value = true
   try {
     const toggleCallable = httpsCallable(functions, 'toggleNewsLike')
@@ -360,6 +454,7 @@ const submitComment = async () => {
     if (!isAuthenticated.value) {
       toast.info('Sign in to add a comment.')
     }
+    trackEngagementEvent('comment_submit_click', { authenticated: isAuthenticated.value ? 'yes' : 'no' })
     return
   }
   const trimmed = commentMessage.value.replace(/\s+/g, ' ').trim()
@@ -369,6 +464,10 @@ const submitComment = async () => {
   }
   isSubmittingComment.value = true
   try {
+    trackEngagementEvent('comment_submit_click', {
+      authenticated: 'yes',
+      message_length: trimmed.length
+    })
     const addComment = httpsCallable(functions, 'addNewsComment')
     const response = await addComment({ id: article.value.id, message: trimmed })
     const newComment = response.data?.comment
@@ -396,46 +495,6 @@ const getInitial = (value) => {
   return value.trim().charAt(0).toUpperCase()
 }
 
-const enhanceContentMedia = () => {
-  const root = contentRef.value
-  if (!root) return
-  const videos = root.querySelectorAll('video')
-  videos.forEach((video) => {
-    video.setAttribute('playsinline', '')
-    video.setAttribute('webkit-playsinline', '')
-    video.setAttribute('preload', 'metadata')
-    video.setAttribute('controls', '')
-    video.setAttribute('controlslist', 'nodownload noremoteplayback')
-    video.setAttribute('disablepictureinpicture', '')
-    video.controls = true
-    video.playsInline = true
-    video.autoplay = false
-    video.loop = false
-    video.muted = false
-    video.removeAttribute('autoplay')
-    video.removeAttribute('loop')
-    video.removeAttribute('muted')
-    video.style.width = '100%'
-    video.style.height = 'auto'
-    const tryPause = () => {
-      try {
-        video.pause()
-      } catch (error) {
-        // ignore
-      }
-    }
-    if (!video.readyState) {
-      video.addEventListener('loadeddata', () => {
-        tryPause()
-        video.load()
-      }, { once: true })
-    } else {
-      tryPause()
-      video.load()
-    }
-  })
-}
-
 onMounted(loadArticle)
 
 watch(isAuthenticated, (authenticated) => {
@@ -446,14 +505,6 @@ watch(isAuthenticated, (authenticated) => {
     likesCount.value = article.value?.likesCount ?? 0
   }
 })
-
-watch(
-  () => article.value?.contentHtml,
-  async () => {
-    await nextTick()
-    enhanceContentMedia()
-  }
-)
 
 onMounted(() => {
   const video = videoRef.value
@@ -492,7 +543,7 @@ onBeforeUnmount(() => {
 .news-preview {
   max-width: 1100px;
   margin: 0 auto;
-  padding: calc(2.5rem + env(safe-area-inset-top, 0px)) 1.5rem 4rem;
+  padding: 0;
   color: #f0f4f8;
   display: flex;
   flex-direction: column;
@@ -707,13 +758,24 @@ onBeforeUnmount(() => {
   overflow-wrap: break-word;
 }
 
-.content :deep(img),
-.content :deep(video) {
+.content :deep(img) {
   width: 100%;
   max-width: 100%;
   margin: 1.5rem 0;
   border-radius: 16px;
   box-shadow: 0 12px 24px rgba(0, 0, 0, 0.35);
+}
+
+.content :deep(video) {
+  display: none !important;
+}
+
+.content-segment {
+  display: block;
+}
+
+.content-segment:not(:last-child) {
+  margin-bottom: 1.5rem;
 }
 
 .content :deep(h2),
@@ -863,7 +925,7 @@ onBeforeUnmount(() => {
 
 @media (max-width: 600px) {
   .news-preview {
-    padding: calc(2rem + env(safe-area-inset-top, 0px)) 1rem 3rem;
+    padding: 0;
   }
 
   .preview-body {

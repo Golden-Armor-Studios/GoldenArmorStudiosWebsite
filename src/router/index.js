@@ -120,6 +120,14 @@ const routes = [
     }
   },
   {
+    path: '/app/news/:id',
+    name: 'NewsAppAlias',
+    component: NewsArticlePreview,
+    meta: {
+      publicNews: true
+    }
+  },
+  {
     path: '/:pathMatch(.*)*',
     name: 'NotFound',
     component: NotFoundView
