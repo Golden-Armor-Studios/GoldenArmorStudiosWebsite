@@ -177,18 +177,9 @@
       ></div>
 
       <div class="form-actions">
-        <button
-          v-if="!isVideoProcessing"
-          type="button"
-          class="primary-button"
-          @click="saveArticle"
-          :disabled="isSaving"
-        >
+        <button type="button" class="primary-button" @click="saveArticle" :disabled="isSaving">
           {{ isSaving ? 'Saving…' : 'Save Article' }}
         </button>
-        <div v-else class="save-placeholder">
-          <span class="save-message info">Video processing… Save will be available once upload finishes.</span>
-        </div>
         <span v-if="saveSuccess" class="save-message success">{{ saveSuccess }}</span>
         <span v-if="saveError" class="save-message error">{{ saveError }}</span>
       </div>
@@ -197,16 +188,7 @@
       <aside class="preview-panel">
         <h2>Live Preview</h2>
         <div class="preview-grid">
-          <article
-            ref="mobilePreview"
-            class="preview-card-mobile"
-            :class="{ 'is-dragging': isMobilePreviewDragging }"
-            @pointerdown="startMobilePreviewDrag"
-            @pointermove="handleMobilePreviewDrag"
-            @pointerup="endMobilePreviewDrag"
-            @pointercancel="endMobilePreviewDrag"
-            @pointerleave="endMobilePreviewDrag"
-          >
+          <article class="preview-card-mobile">
             <div class="preview-cover" :class="{ 'preview-cover--empty': !coverPreviewUrl }">
               <img v-if="coverPreviewUrl" :src="coverPreviewUrl" alt="Mobile cover" loading="lazy" />
               <div v-else class="preview-cover-placeholder">
@@ -250,16 +232,7 @@
             </div>
           </article>
 
-          <article
-            ref="detailPreview"
-            class="preview-detail"
-            :class="{ 'is-dragging': isDetailPreviewDragging }"
-            @pointerdown="startDetailPreviewDrag"
-            @pointermove="handleDetailPreviewDrag"
-            @pointerup="endDetailPreviewDrag"
-            @pointercancel="endDetailPreviewDrag"
-            @pointerleave="endDetailPreviewDrag"
-          >
+          <article class="preview-detail">
             <header class="detail-header">
               <div>
                 <p class="detail-label">{{ previewTimestamp }}</p>
@@ -309,7 +282,7 @@
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { httpsCallable } from 'firebase/functions'
-import { getBytes, getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
+import { getDownloadURL, ref as storageRef, uploadBytes } from 'firebase/storage'
 import { functions, storage } from '../firebase'
 import { FFmpeg } from '@ffmpeg/ffmpeg'
 
@@ -318,352 +291,6 @@ const COVER_OUTPUT_WIDTH = 1280
 const FFMPEG_CORE_BASE = 'https://unpkg.com/@ffmpeg/core@0.12.10/dist/esm/'
 const FFMPEG_CORE_JS = `${FFMPEG_CORE_BASE}ffmpeg-core.js`
 const FFMPEG_CORE_WASM = `${FFMPEG_CORE_BASE}ffmpeg-core.wasm`
-
-const STORAGE_BUCKET = storage?.app?.options?.storageBucket || ''
-
-const stripGsPrefix = (value) => {
-  if (typeof value !== 'string') return ''
-  if (!value.startsWith('gs://')) return value
-  const withoutScheme = value.slice(5)
-  const firstSlash = withoutScheme.indexOf('/')
-  if (firstSlash === -1) return ''
-  const bucket = withoutScheme.slice(0, firstSlash)
-  const path = withoutScheme.slice(firstSlash + 1)
-  if (STORAGE_BUCKET && bucket !== STORAGE_BUCKET) {
-    console.warn(`Storage bucket mismatch. Expected ${STORAGE_BUCKET} but received ${bucket}.`)
-  }
-  return path
-}
-
-const guessContentTypeFromName = (value) => {
-  if (typeof value !== 'string') return null
-  const extension = value.split('.').pop()?.toLowerCase() || ''
-  if (['jpg', 'jpeg'].includes(extension)) return 'image/jpeg'
-  if (extension === 'png') return 'image/png'
-  if (extension === 'gif') return 'image/gif'
-  if (['mp4', 'm4v', 'mov'].includes(extension)) return 'video/mp4'
-  if (extension === 'webm') return 'video/webm'
-  return null
-}
-
-const resolveDownloadUrlFromStorage = async (storagePath) => {
-  try {
-    const cleanedPath = stripGsPrefix(storagePath)
-    const reference = storageRef(storage, cleanedPath || storagePath)
-    return await getDownloadURL(reference)
-  } catch (error) {
-    console.warn('Failed to resolve download URL from storage path', storagePath, error)
-    return null
-  }
-}
-
-const buildCoverCandidateList = (article) => {
-  const candidates = [
-    article?.coverImage,
-    article?.legacyCoverImage,
-    article?.cover,
-    article?.coverPhoto,
-    article?.coverUrl,
-    article?.coverImageUrl,
-    article?.heroImage
-  ]
-  return candidates.filter(Boolean)
-}
-
-const coerceHtmlString = (value, depth = 0, visited = new WeakSet()) => {
-  if (!value) return ''
-  if (typeof value === 'string') {
-    const trimmed = value.trim()
-    if (!trimmed) return ''
-    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
-      try {
-        const parsed = JSON.parse(trimmed)
-        if (parsed && typeof parsed === 'object') {
-          return coerceHtmlString(parsed, depth + 1, visited)
-        }
-      } catch (_error) {
-        // fall through to returning the original trimmed string
-      }
-    }
-    return trimmed
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => coerceHtmlString(item, depth + 1, visited)).filter(Boolean).join('')
-  }
-  if (typeof value === 'object' && value !== null) {
-    if (visited.has(value)) return ''
-    visited.add(value)
-    const candidateKeys = [
-      'contentHtml',
-      'html',
-      'body',
-      'content',
-      'value',
-      'text',
-      'rendered',
-      'markup'
-    ]
-    for (const key of candidateKeys) {
-      if (key in value) {
-        const result = coerceHtmlString(value[key], depth + 1, visited)
-        if (result) return result
-      }
-    }
-    if (typeof value.ops === 'object' && Array.isArray(value.ops)) {
-      return value.ops
-        .map((op) => {
-          if (typeof op?.insert === 'string') {
-            return op.insert
-          }
-          return ''
-        })
-        .join('')
-    }
-    for (const nestedValue of Object.values(value)) {
-      const result = coerceHtmlString(nestedValue, depth + 1, visited)
-      if (result) return result
-    }
-  }
-  return ''
-}
-
-const resolveArticleHtml = (article) => {
-  if (!article || typeof article !== 'object') return ''
-
-  const fallbackSections = []
-  if (Array.isArray(article.sections)) fallbackSections.push(...article.sections)
-  if (Array.isArray(article.blocks)) fallbackSections.push(...article.blocks)
-  if (Array.isArray(article.contentSections)) fallbackSections.push(...article.contentSections)
-  if (Array.isArray(article.bodySections)) fallbackSections.push(...article.bodySections)
-
-  const directCandidates = [
-    article.contentHtml,
-    article.legacyContent,
-    article.content,
-    article.body,
-    article.html,
-    article.text,
-    article.story,
-    article.details,
-    article.description,
-    article.markup,
-    article.rendered,
-    article.draft?.contentHtml,
-    article.draft?.html,
-    article.draft?.content,
-    article.draft?.body,
-    article.draft?.text
-  ]
-
-  const sectionCandidates = fallbackSections.flatMap((section) => [
-    section?.contentHtml,
-    section?.html,
-    section?.body,
-    section?.text,
-    section?.content,
-    section
-  ])
-
-  const objectCandidates = [
-    article,
-    article.draft,
-    ...(Array.isArray(article.contents) ? article.contents : []),
-    ...(Array.isArray(article.data) ? article.data : [])
-  ]
-
-  const candidates = [...directCandidates, ...sectionCandidates, ...objectCandidates]
-
-  for (const candidate of candidates) {
-    const result = coerceHtmlString(candidate, 0, new WeakSet())
-    if (result) {
-      if (/<[a-z][\s\S]*>/i.test(result)) {
-        return result
-      }
-      return result
-        .split(/\r?\n+/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-        .map((line) => `<p>${line}</p>`)
-        .join('') || result
-    }
-  }
-  return ''
-}
-
-const normalizeCoverImage = async (raw) => {
-  if (!raw) return null
-  if (typeof raw === 'string') {
-    const trimmed = raw.trim()
-    if (!trimmed) return null
-    const fileName = trimmed.split('/').pop() || 'cover'
-    return {
-      downloadUrl: trimmed,
-      storagePath: null,
-      contentType: guessContentTypeFromName(fileName),
-      fileName
-    }
-  }
-  if (typeof raw !== 'object') return null
-  const base = { ...raw }
-  const url =
-    raw.downloadUrl ||
-    raw.downloadURL ||
-    raw.url ||
-    raw.link ||
-    null
-  const storagePath = raw.storagePath || raw.path || raw.fullPath || null
-  const resolvedUrl = url || (storagePath ? await resolveDownloadUrlFromStorage(storagePath) : null)
-  if (!resolvedUrl) return null
-  const fileName =
-    raw.fileName ||
-    raw.name ||
-    resolvedUrl.split('/').pop() ||
-    (storagePath ? storagePath.split('/').pop() : 'cover')
-  base.downloadUrl = resolvedUrl
-  base.storagePath = storagePath
-  base.fileName = fileName
-  base.contentType = raw.contentType || guessContentTypeFromName(fileName) || 'image/jpeg'
-  if (!base.type && base.contentType) {
-    base.type = base.contentType.startsWith('image') ? 'image' : raw.type
-  }
-  return base
-}
-
-const normalizeMediaItems = async (rawList) => {
-  const list = Array.isArray(rawList) ? rawList : []
-  const normalized = []
-  for (const raw of list) {
-    if (!raw) continue
-    let entry
-    if (typeof raw === 'string') {
-      const fileName = raw.split('/').pop() || 'asset'
-      entry = {
-        downloadUrl: raw,
-        storagePath: null,
-        contentType: guessContentTypeFromName(fileName),
-        fileName,
-        type: /\.(mp4|m4v|mov|webm)$/i.test(raw) ? 'video' : 'image'
-      }
-    } else if (typeof raw === 'object') {
-      entry = {
-        ...raw,
-        downloadUrl:
-          raw.downloadUrl ||
-          raw.downloadURL ||
-          raw.url ||
-          raw.link ||
-          null,
-        storagePath: raw.storagePath || raw.path || raw.fullPath || null,
-        contentType: raw.contentType || null,
-        fileName: raw.fileName || raw.name || null,
-        type: raw.type || null
-      }
-    } else {
-      continue
-    }
-
-    if (!entry.downloadUrl && entry.storagePath) {
-      entry.downloadUrl = await resolveDownloadUrlFromStorage(entry.storagePath)
-    }
-
-    if (!entry.downloadUrl) {
-      continue
-    }
-
-    if (!entry.fileName) {
-      entry.fileName = entry.downloadUrl.split('/').pop() || null
-    }
-
-    if (!entry.contentType && entry.fileName) {
-      entry.contentType = guessContentTypeFromName(entry.fileName)
-    }
-
-    if (!entry.type && entry.contentType) {
-      entry.type = entry.contentType.startsWith('video') ? 'video' : 'image'
-    }
-
-    if (!entry.type && entry.downloadUrl) {
-      entry.type = /\.(mp4|m4v|mov|webm)$/i.test(entry.downloadUrl) ? 'video' : 'image'
-    }
-
-    entry.type = entry.type || 'image'
-    normalized.push(entry)
-  }
-  const deduped = []
-  const seen = new Set()
-  for (const item of normalized) {
-    const key = normalizeStoragePathKey(item.storagePath) || item.downloadUrl
-    if (key) {
-      if (seen.has(key)) continue
-      seen.add(key)
-    }
-    deduped.push(item)
-  }
-  return deduped
-}
-
-const gatherMediaCandidates = (...sources) => {
-  const result = []
-  sources.forEach((source) => {
-    if (!source) return
-    if (Array.isArray(source)) {
-      result.push(...source)
-    } else {
-      result.push(source)
-    }
-  })
-  return result
-}
-
-const normalizeStoragePathKey = (value) => {
-  if (typeof value !== 'string') return ''
-  const trimmed = value.trim()
-  if (!trimmed) return ''
-  if (trimmed.startsWith('gs://')) {
-    return stripGsPrefix(trimmed)
-  }
-  return trimmed.replace(/^\/+/, '')
-}
-
-const restoreVideoSources = async () => {
-  if (!editor.value) return []
-  const videoElements = Array.from(editor.value.querySelectorAll('video'))
-  if (!videoElements.length) return []
-  const restored = []
-  await Promise.all(
-    videoElements.map(async (video) => {
-      const existingSrc = video.getAttribute('src') || video.src
-      if (existingSrc) return
-      const storagePath = video.dataset.storagePath || video.getAttribute('data-storage-path')
-      if (!storagePath) return
-      const downloadUrl = await resolveDownloadUrlFromStorage(storagePath)
-      if (!downloadUrl) return
-      video.setAttribute('src', downloadUrl)
-      restored.push({ storagePath, downloadUrl })
-    })
-  )
-  return restored
-}
-
-const applyRestoredVideoUrlsToMedia = (restored) => {
-  if (!Array.isArray(restored) || !restored.length) return
-  const lookup = new Map(
-    restored
-      .map((item) => [normalizeStoragePathKey(item.storagePath), item.downloadUrl])
-      .filter(([key]) => Boolean(key))
-  )
-  if (!lookup.size) return
-  mediaItems.value = mediaItems.value.map((item) => {
-    const key = normalizeStoragePathKey(item.storagePath)
-    if (key && lookup.has(key)) {
-      return {
-        ...item,
-        downloadUrl: lookup.get(key)
-      }
-    }
-    return item
-  })
-}
 
 const title = ref('')
 const coverName = ref('')
@@ -678,8 +305,6 @@ const videoInput = ref(null)
 const editor = ref(null)
 const cropStage = ref(null)
 const coverImage = ref(null)
-const mobilePreview = ref(null)
-const detailPreview = ref(null)
 
 const isLoading = ref(false)
 const loadError = ref('')
@@ -688,10 +313,8 @@ const videoUploadMessage = ref('')
 const transcodingState = reactive({
   loading: false,
   progress: 0,
-  error: '',
-  duration: 0
+  error: ''
 })
-const pendingVideoUpload = ref(false)
 const isSaving = ref(false)
 const saveError = ref('')
 const saveSuccess = ref('')
@@ -702,9 +325,6 @@ const coverMeta = ref(null)
 const activeVideo = ref(null)
 const videoWidthPct = ref(100)
 const videoControlsVisible = computed(() => Boolean(activeVideo.value))
-const isVideoProcessing = computed(() => transcodingState.loading || pendingVideoUpload.value)
-const isMobilePreviewDragging = ref(false)
-const isDetailPreviewDragging = ref(false)
 
 const route = useRoute()
 
@@ -732,24 +352,11 @@ const coverState = reactive({
 
 let resizeObserver = null
 let coverUploadTimeout = null
-let coverUploadSuppressed = false
 let savedRange = null
 const ffmpegInstance = new FFmpeg()
 let ffmpegLoadingPromise = null
 let ffmpegReady = false
 let ffmpegProgressConfigured = false
-let ffmpegLogConfigured = false
-let activeTranscodeContext = null
-
-const createDragState = () => ({
-  active: false,
-  pointerId: null,
-  startY: 0,
-  scrollTop: 0
-})
-
-const mobilePreviewDragState = createDragState()
-const detailPreviewDragState = createDragState()
 
 const sanitizeFileName = (value) => {
   if (typeof value !== 'string' || !value.trim()) return 'file'
@@ -839,107 +446,20 @@ const uploadFileToStorage = async (folder, file) => {
   }
 }
 
-const updateTranscodeProgress = (ratio) => {
-  if (!transcodingState.loading) return
-  const numericRatio = Number.isFinite(Number(ratio)) ? Number(ratio) : 0
-  const clamped = Math.min(1, Math.max(0, numericRatio))
-  transcodingState.progress = clamped
-  if (clamped >= 1) {
-    videoUploadMessage.value = 'Transcoding video… 100%'
-    return
-  }
-  const percentValue = clamped * 100
-  const display =
-    percentValue >= 10
-      ? percentValue.toFixed(0)
-      : percentValue > 0
-        ? percentValue.toFixed(1)
-        : '0.0'
-  videoUploadMessage.value = `Transcoding video… ${display}%`
-}
-
-const getMediaDuration = (file) =>
-  new Promise((resolve) => {
-    if (!(file instanceof Blob)) {
-      resolve(0)
-      return
-    }
-
-    let objectUrl = ''
-    try {
-      objectUrl = URL.createObjectURL(file)
-    } catch (error) {
-      resolve(0)
-      return
-    }
-
-    const video = document.createElement('video')
-    video.preload = 'metadata'
-    video.muted = true
-    video.playsInline = true
-
-    const cleanup = () => {
-      if (objectUrl) {
-        URL.revokeObjectURL(objectUrl)
-        objectUrl = ''
-      }
-      video.removeAttribute('src')
-      video.load()
-    }
-
-    video.onloadedmetadata = () => {
-      const duration = Number.isFinite(video.duration) ? video.duration : 0
-      cleanup()
-      resolve(duration > 0 ? duration : 0)
-    }
-
-    video.onerror = () => {
-      cleanup()
-      resolve(0)
-    }
-
-    video.src = objectUrl
-  })
-
-const ensureFfmpegHandlers = () => {
-  if (!ffmpegProgressConfigured) {
-    ffmpegInstance.on('progress', ({ ratio }) => {
-      updateTranscodeProgress(ratio)
-    })
-    ffmpegProgressConfigured = true
-  }
-
-  if (!ffmpegLogConfigured) {
-    ffmpegInstance.on('log', ({ message }) => {
-      if (
-        !transcodingState.loading ||
-        !activeTranscodeContext ||
-        !activeTranscodeContext.duration ||
-        typeof message !== 'string'
-      ) {
-        return
-      }
-
-      const match = message.match(/time=\s*(\d+):(\d+):(\d+\.?\d*)/)
-      if (!match) return
-      const [, hours, minutes, secondsPart] = match
-      const seconds =
-        parseInt(hours, 10) * 3600 +
-        parseInt(minutes, 10) * 60 +
-        parseFloat(secondsPart)
-      if (!Number.isFinite(seconds) || seconds <= 0) return
-      const ratio = seconds / activeTranscodeContext.duration
-      updateTranscodeProgress(ratio)
-    })
-    ffmpegLogConfigured = true
-  }
-}
-
 const getFfmpeg = async () => {
   if (typeof window === 'undefined') {
     throw new Error('FFmpeg is only available in the browser environment.')
   }
-  ensureFfmpegHandlers()
+  if (!ffmpegProgressConfigured) {
+    ffmpegInstance.on('progress', ({ ratio }) => {
+      if (!transcodingState.loading) return
+      const value = Number.isFinite(ratio) ? Math.min(1, Math.max(0, ratio)) : 0
+      transcodingState.progress = value
+      const pct = Math.round(value * 100)
+      videoUploadMessage.value = `Transcoding video… ${pct}%`
+    })
+    ffmpegProgressConfigured = true
+  }
 
   if (!ffmpegReady) {
     if (!ffmpegLoadingPromise) {
@@ -961,18 +481,10 @@ const transcodeVideoForIOS = async (file) => {
   transcodingState.loading = true
   transcodingState.progress = 0
   transcodingState.error = ''
-  transcodingState.duration = 0
   videoUploadMessage.value = 'Preparing video encoder…'
-  activeTranscodeContext = null
   try {
-    const expectedDuration = await getMediaDuration(file)
-    if (expectedDuration && Number.isFinite(expectedDuration) && expectedDuration > 0) {
-      transcodingState.duration = expectedDuration
-      activeTranscodeContext = { duration: expectedDuration }
-    }
-
     const ffmpeg = await getFfmpeg()
-    updateTranscodeProgress(0)
+    videoUploadMessage.value = 'Transcoding video…'
     const extension = (file.name?.split('.').pop() || 'mp4').toLowerCase()
     const inputName = `input-${Date.now()}.${extension}`
     const outputName = `output-${Date.now()}.mp4`
@@ -997,7 +509,8 @@ const transcodeVideoForIOS = async (file) => {
       '128k',
       outputName
     ])
-    updateTranscodeProgress(1)
+    transcodingState.progress = 1
+    videoUploadMessage.value = 'Transcoding video… 100%'
     const data = await ffmpeg.readFile(outputName)
     await ffmpeg.deleteFile(inputName)
     await ffmpeg.deleteFile(outputName)
@@ -1012,15 +525,12 @@ const transcodeVideoForIOS = async (file) => {
     videoUploadMessage.value = 'Transcode failed. Uploading original file.'
     return file
   } finally {
-    activeTranscodeContext = null
     transcodingState.loading = false
     transcodingState.progress = 0
-    transcodingState.duration = 0
   }
 }
 
 const saveArticle = async () => {
-  if (isVideoProcessing.value) return
   if (isSaving.value) return
   saveError.value = ''
   saveSuccess.value = ''
@@ -1098,28 +608,6 @@ const getEditorHtml = () => {
   if (!editor.value) return ''
   const clone = editor.value.cloneNode(true)
   clone.querySelectorAll('.video-insert-handle').forEach((handle) => handle.remove())
-  const paragraphs = Array.from(clone.querySelectorAll('p'))
-  let previousEmpty = false
-  paragraphs.forEach((paragraph) => {
-    const media = paragraph.querySelector('img,video,figure')
-    const textContent = paragraph.textContent?.replace(/\u200B/g, '').trim() || ''
-    const sanitizedInner = paragraph.innerHTML
-      .replace(/<br\s*\/?>/gi, '')
-      .replace(/&nbsp;/gi, '')
-      .replace(/\u200B/g, '')
-      .trim()
-    const isEmpty = !media && !textContent && !sanitizedInner
-    if (isEmpty) {
-      if (previousEmpty) {
-        paragraph.remove()
-      } else {
-        previousEmpty = true
-        paragraph.innerHTML = '<br>'
-      }
-    } else {
-      previousEmpty = false
-    }
-  })
   return clone.innerHTML || ''
 }
 
@@ -1155,11 +643,6 @@ const resetCoverState = () => {
   coverState.containerHeight = 0
   coverState.uploading = false
   coverState.uploadError = ''
-  if (coverUploadTimeout) {
-    clearTimeout(coverUploadTimeout)
-    coverUploadTimeout = null
-  }
-  coverUploadSuppressed = false
   coverMeta.value = null
   coverPreviewUrl.value = ''
 }
@@ -1174,7 +657,6 @@ const resetEditor = () => {
   saveError.value = ''
   saveSuccess.value = ''
   isSaving.value = false
-  activeVideo.value = null
   resetCoverState()
   nextTick(() => {
     if (editor.value) {
@@ -1193,12 +675,12 @@ const handleCoverChange = (event) => {
   coverUploadMessage.value = 'Processing cover…'
   coverName.value = file.name
   const objectUrl = URL.createObjectURL(file)
-  loadCoverImage(objectUrl, file.name, { scheduleUpload: true })
+  loadCoverImage(objectUrl, file.name)
+  scheduleCoverUpload(true)
   event.target.value = ''
 }
 
-const loadCoverImage = (source, fileName, options = {}) => {
-  const { scheduleUpload = true, statusMessage = null } = options
+const loadCoverImage = (source, fileName) => {
   if (!source) return
   if (coverState.displaySource && coverState.displaySource !== source && coverState.displaySource.startsWith('blob:')) {
     URL.revokeObjectURL(coverState.displaySource)
@@ -1218,14 +700,8 @@ const loadCoverImage = (source, fileName, options = {}) => {
       recalcZoomBounds(true)
       centerImage()
       setupResizeObserver()
-      if (statusMessage !== null) {
-        coverUploadMessage.value = statusMessage
-      } else {
-        coverUploadMessage.value = `Cover ready • ${fileName || 'image'}`
-      }
-      if (scheduleUpload) {
-        scheduleCoverUpload(true)
-      }
+      coverUploadMessage.value = `Cover ready • ${fileName || 'image'}`
+      scheduleCoverUpload(true)
     })
   }
   image.onerror = () => {
@@ -1405,7 +881,7 @@ const performCoverUpload = async () => {
 }
 
 const scheduleCoverUpload = (immediate = false) => {
-  if (!coverState.imageReady || coverUploadSuppressed) return
+  if (!coverState.imageReady) return
   if (coverUploadTimeout) {
     clearTimeout(coverUploadTimeout)
     coverUploadTimeout = null
@@ -1423,7 +899,6 @@ const triggerVideoUpload = () => {
 const handleVideoChange = async (event) => {
   const file = event.target.files?.[0]
   if (!file) return
-  pendingVideoUpload.value = true
   videoUploadMessage.value = 'Processing video…'
   try {
     const prepared = await transcodeVideoForIOS(file)
@@ -1435,67 +910,23 @@ const handleVideoChange = async (event) => {
     console.error(error)
     videoUploadMessage.value = 'Video upload failed.'
   } finally {
-    pendingVideoUpload.value = false
     event.target.value = ''
   }
 }
 
 const ensureVideoHandles = (figureEl) => {
   if (!figureEl) return
-  const videoEl = figureEl.querySelector('video')
-  if (videoEl) {
-    videoEl.setAttribute('contenteditable', 'false')
-    videoEl.setAttribute('playsinline', '')
-    videoEl.setAttribute('webkit-playsinline', '')
-    videoEl.controls = true
-    if (!videoEl.style.maxWidth) {
-      videoEl.style.maxWidth = '100%'
-      videoEl.style.width = '100%'
-    }
-    if (!videoEl.style.margin) {
-      videoEl.style.margin = '0 auto'
-    }
-    if (!figureEl.style.textAlign) {
-      figureEl.style.textAlign = 'center'
-    }
-    if (!videoEl.dataset.wysiwygBound) {
-      videoEl.addEventListener('click', (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        activateVideo(videoEl)
-      })
-      videoEl.dataset.wysiwygBound = 'true'
-    }
-  }
   if (!figureEl.querySelector('.video-insert-handle--top')) {
     const topHandle = document.createElement('div')
     topHandle.className = 'video-insert-handle video-insert-handle--top'
     topHandle.dataset.position = 'before'
-    topHandle.setAttribute('contenteditable', 'false')
-    topHandle.setAttribute('tabindex', '-1')
     figureEl.insertBefore(topHandle, figureEl.firstChild)
-  } else {
-    const topHandle = figureEl.querySelector('.video-insert-handle--top')
-    if (topHandle) {
-      topHandle.dataset.position = 'before'
-      topHandle.setAttribute('contenteditable', 'false')
-      topHandle.setAttribute('tabindex', '-1')
-    }
   }
   if (!figureEl.querySelector('.video-insert-handle--bottom')) {
     const bottomHandle = document.createElement('div')
     bottomHandle.className = 'video-insert-handle video-insert-handle--bottom'
     bottomHandle.dataset.position = 'after'
-    bottomHandle.setAttribute('contenteditable', 'false')
-    bottomHandle.setAttribute('tabindex', '-1')
     figureEl.appendChild(bottomHandle)
-  } else {
-    const bottomHandle = figureEl.querySelector('.video-insert-handle--bottom')
-    if (bottomHandle) {
-      bottomHandle.dataset.position = 'after'
-      bottomHandle.setAttribute('contenteditable', 'false')
-      bottomHandle.setAttribute('tabindex', '-1')
-    }
   }
 }
 
@@ -1504,8 +935,29 @@ const decorateVideoFigures = () => {
   editor.value.querySelectorAll('figure.wysiwyg-video').forEach((figure) => ensureVideoHandles(figure))
 }
 
+const insertParagraphAroundVideo = (figureEl, before) => {
+  if (!editor.value || !figureEl?.parentNode) return
+  const paragraph = document.createElement('p')
+  paragraph.innerHTML = '<br>'
+  if (before) {
+    figureEl.parentNode.insertBefore(paragraph, figureEl)
+  } else if (figureEl.nextSibling) {
+    figureEl.parentNode.insertBefore(paragraph, figureEl.nextSibling)
+  } else {
+    figureEl.parentNode.appendChild(paragraph)
+  }
+  const selection = window.getSelection()
+  const range = document.createRange()
+  range.selectNodeContents(paragraph)
+  range.collapse(true)
+  selection.removeAllRanges()
+  selection.addRange(range)
+  saveSelection()
+  handleEditorInput()
+}
+
 const insertVideoIntoEditor = (meta) => {
-  if (!editor.value || !meta?.downloadUrl) return
+  if (!editor.value) return
   editor.value.focus()
   restoreSelection()
   const html = `
@@ -1517,8 +969,8 @@ const insertVideoIntoEditor = (meta) => {
         playsinline
         webkit-playsinline
         preload="metadata"
-        data-storage-path="${meta.storagePath || ''}"
-        data-file-name="${meta.fileName || ''}"
+        data-storage-path="${meta.storagePath}"
+        data-file-name="${meta.fileName}"
         style="max-width: 100%; width: 100%;"
       ></video>
       <div class="video-insert-handle video-insert-handle--bottom" data-position="after"></div>
@@ -1531,36 +983,10 @@ const insertVideoIntoEditor = (meta) => {
   const inputEvent = new Event('input', { bubbles: true })
   editor.value.dispatchEvent(inputEvent)
   nextTick(() => {
-    if (!editor.value) return
-    decorateVideoFigures()
     handleEditorInput()
     saveSelection()
-    const videos = Array.from(editor.value.querySelectorAll('figure.wysiwyg-video video'))
-    const latest = videos[videos.length - 1]
-    activateVideo(latest || null)
+    decorateVideoFigures()
   })
-}
-
-const insertParagraphAroundVideo = (figureEl, before) => {
-  if (!editor.value || !figureEl?.parentNode) return
-  const paragraph = document.createElement('p')
-  paragraph.innerHTML = '<br>'
-  paragraph.classList.add('wysiwyg-placeholder')
-  if (before) {
-    figureEl.parentNode.insertBefore(paragraph, figureEl)
-  } else if (figureEl.nextSibling) {
-    figureEl.parentNode.insertBefore(paragraph, figureEl.nextSibling)
-  } else {
-    figureEl.parentNode.appendChild(paragraph)
-  }
-  const selection = window.getSelection()
-  const range = document.createRange()
-  range.setStart(paragraph, 0)
-  range.collapse(true)
-  selection.removeAllRanges()
-  selection.addRange(range)
-  saveSelection()
-  handleEditorInput()
 }
 
 const clearActiveVideo = () => {
@@ -1578,68 +1004,6 @@ const updateActiveVideoWidth = () => {
   handleEditorInput()
 }
 
-const finalizePreviewDrag = (elementRef, dragState, isDraggingRef) => {
-  const el = elementRef.value
-  if (el && dragState.pointerId !== null) {
-    el.releasePointerCapture?.(dragState.pointerId)
-    dragState.scrollTop = el.scrollTop
-  }
-  dragState.active = false
-  dragState.pointerId = null
-  if (isDraggingRef) {
-    isDraggingRef.value = false
-  }
-}
-
-const activateVideo = (videoEl) => {
-  if (!videoEl || !editor.value?.contains(videoEl)) {
-    activeVideo.value = null
-    return
-  }
-  activeVideo.value = videoEl
-  const rawWidth = parseFloat(videoEl.style.maxWidth?.replace('%', '')) || 100
-  videoWidthPct.value = Math.min(100, Math.max(40, rawWidth))
-}
-
-const startPreviewDrag = (event, elementRef, dragState, isDraggingRef) => {
-  const el = elementRef.value
-  if (!el) return
-  if (typeof event.button === 'number' && event.button !== 0) return
-  dragState.active = true
-  dragState.pointerId = event.pointerId
-  dragState.startY = event.clientY
-  dragState.scrollTop = el.scrollTop
-  if (isDraggingRef) {
-    isDraggingRef.value = true
-  }
-  el.setPointerCapture?.(event.pointerId)
-  event.preventDefault()
-}
-
-const movePreviewDrag = (event, elementRef, dragState) => {
-  const el = elementRef.value
-  if (!el || !dragState.active || event.pointerId !== dragState.pointerId) {
-    return
-  }
-  const deltaY = event.clientY - dragState.startY
-  el.scrollTop = dragState.scrollTop - deltaY
-  event.preventDefault()
-}
-
-const endPreviewDrag = (event, elementRef, dragState, isDraggingRef) => {
-  if (!dragState.active) return
-  if (event && event.pointerId !== dragState.pointerId) return
-  finalizePreviewDrag(elementRef, dragState, isDraggingRef)
-}
-
-const startMobilePreviewDrag = (event) => startPreviewDrag(event, mobilePreview, mobilePreviewDragState, isMobilePreviewDragging)
-const handleMobilePreviewDrag = (event) => movePreviewDrag(event, mobilePreview, mobilePreviewDragState)
-const endMobilePreviewDrag = (event) => endPreviewDrag(event, mobilePreview, mobilePreviewDragState, isMobilePreviewDragging)
-
-const startDetailPreviewDrag = (event) => startPreviewDrag(event, detailPreview, detailPreviewDragState, isDetailPreviewDragging)
-const handleDetailPreviewDrag = (event) => movePreviewDrag(event, detailPreview, detailPreviewDragState)
-const endDetailPreviewDrag = (event) => endPreviewDrag(event, detailPreview, detailPreviewDragState, isDetailPreviewDragging)
-
 const onEditorClick = (event) => {
   const handleEl = event.target?.closest('.video-insert-handle')
   if (handleEl && editor.value?.contains(handleEl)) {
@@ -1652,7 +1016,13 @@ const onEditorClick = (event) => {
   }
 
   const videoEl = event.target?.closest('video')
-  activateVideo(videoEl)
+  if (!videoEl || !editor.value?.contains(videoEl)) {
+    activeVideo.value = null
+    return
+  }
+  activeVideo.value = videoEl
+  const rawWidth = parseFloat(videoEl.style.maxWidth?.replace('%', '')) || 100
+  videoWidthPct.value = Math.min(100, Math.max(40, rawWidth))
 }
 
 const saveSelection = () => {
@@ -1732,122 +1102,18 @@ const handleContentImage = (event) => {
   event.target.value = ''
 }
 
-const hydrateCoverFromMeta = async (meta) => {
-  if (!meta) return false
-  const { downloadUrl, storagePath, fileName, contentType } = meta
-  const effectiveName = fileName || 'cover'
-  coverName.value = effectiveName
-  coverState.uploadError = ''
-  coverUploadMessage.value = 'Loading cover…'
-
-  const attemptFetch = async () => {
-    if (!downloadUrl) return null
-    try {
-      const response = await fetch(downloadUrl, { mode: 'cors' })
-      if (!response.ok) {
-        throw new Error(`HTTP ${response.status}`)
-      }
-      return await response.blob()
-    } catch (error) {
-      console.warn('Cover fetch via downloadUrl failed; will try storage fallback.', error)
-      return null
-    }
-  }
-
-  const attemptStorageFetch = async () => {
-    if (!storagePath) return null
-    try {
-      const cleanedPath = stripGsPrefix(storagePath)
-      const reference = storageRef(storage, cleanedPath || storagePath)
-      const bytes = await getBytes(reference)
-      return new Blob([bytes], { type: contentType || guessContentTypeFromName(effectiveName) || 'application/octet-stream' })
-    } catch (error) {
-      console.warn('Cover fetch via Storage getBytes failed.', error)
-      return null
-    }
-  }
-
-  let blob = await attemptFetch()
-  if (!blob) {
-    blob = await attemptStorageFetch()
-  }
-
-  if (!blob && downloadUrl) {
-    coverPreviewUrl.value = downloadUrl
-    coverUploadMessage.value = 'Cover loaded via direct URL (CORS restricted).'
-    loadCoverImage(downloadUrl, effectiveName, {
-      scheduleUpload: false,
-      statusMessage: 'Cover loaded from existing article.'
-    })
-    return true
-  }
-
-  if (blob) {
-    const objectUrl = URL.createObjectURL(blob)
-    loadCoverImage(objectUrl, effectiveName, {
-      scheduleUpload: false,
-      statusMessage: 'Cover loaded from existing article.'
-    })
-    if (!meta.downloadUrl && storagePath) {
-      const resolved = await resolveDownloadUrlFromStorage(storagePath)
-      if (resolved) {
-        coverMeta.value = {
-          ...meta,
-          downloadUrl: resolved
-        }
-        coverPreviewUrl.value = resolved
-      } else {
-        coverMeta.value = { ...meta }
-        coverPreviewUrl.value = objectUrl
-      }
-    } else {
-      coverMeta.value = {
-        ...meta,
-        downloadUrl: meta.downloadUrl || meta.previewUrl || meta.url || null
-      }
-      coverPreviewUrl.value = meta.downloadUrl || objectUrl
-    }
-    return true
-  }
-
-  const fallbackMessage = 'Cover preview unavailable. Showing original cover.'
-  coverState.uploadError = 'Unable to load cover for editing.'
-  coverUploadMessage.value = fallbackMessage
-  coverPreviewUrl.value = meta.downloadUrl || ''
-  if (meta.downloadUrl) {
-    loadCoverImage(meta.downloadUrl, effectiveName, {
-      scheduleUpload: false,
-      statusMessage: fallbackMessage
-    })
-  }
-  return false
-}
-
-const prepareCoverForEditing = async (article) => {
-  coverUploadMessage.value = ''
-  coverUploadSuppressed = true
+const hydrateCoverFromRemote = async (url, fileName) => {
   try {
-    const candidates = buildCoverCandidateList(article)
-    for (const candidate of candidates) {
-      const normalized = await normalizeCoverImage(candidate)
-      if (!normalized) {
-        continue
-      }
-      coverMeta.value = normalized
-      const hydrated = await hydrateCoverFromMeta(normalized)
-      if (hydrated) {
-        return
-      }
-    }
-  } finally {
-    setTimeout(() => {
-      coverUploadSuppressed = false
-    }, 0)
+    const response = await fetch(url, { mode: 'cors' })
+    const blob = await response.blob()
+    const objectUrl = URL.createObjectURL(blob)
+    coverName.value = fileName || 'cover'
+    loadCoverImage(objectUrl, fileName || 'cover')
+  } catch (error) {
+    console.warn('Unable to hydrate cover from remote', error)
+    coverState.uploadError = 'Unable to load cover for editing.'
+    coverUploadMessage.value = 'Cover preview unavailable.'
   }
-  coverMeta.value = null
-  coverPreviewUrl.value = ''
-  coverName.value = ''
-  coverUploadMessage.value = 'Existing cover not available.'
 }
 
 const loadArticleIfNeeded = async () => {
@@ -1862,41 +1128,23 @@ const loadArticleIfNeeded = async () => {
   try {
     const fetchArticle = httpsCallable(functions, 'getNewsArticle')
     const response = await fetchArticle({ id })
-    const payload = response?.data
-    const article =
-      payload?.article ??
-      (Array.isArray(payload?.articles) ? payload.articles[0] : null) ??
-      (payload && typeof payload === 'object' && !Array.isArray(payload) ? payload : null)
-    console.debug('[NewsEditor] Loaded article payload', article)
+    const article = response.data?.article
     if (!article) {
       throw new Error('Article not found.')
     }
 
     title.value = article.title || ''
-    const articleContent = resolveArticleHtml(article)
-    contentHtml.value = articleContent
+    contentHtml.value = article.contentHtml || ''
+    mediaItems.value = Array.isArray(article.media) ? article.media : []
+    coverMeta.value = article.coverImage || null
+    if (article.coverImage?.downloadUrl) {
+      coverPreviewUrl.value = article.coverImage.downloadUrl
+      await hydrateCoverFromRemote(article.coverImage.downloadUrl, article.coverImage.fileName || 'cover')
+    }
 
-    await prepareCoverForEditing(article)
-
-    const combinedMediaSources = gatherMediaCandidates(
-      article.media,
-      article.legacyMedia,
-      article.assets,
-      article.attachments,
-      article.inlineImages,
-      article.images,
-      article.videos
-    )
-    mediaItems.value = await normalizeMediaItems(combinedMediaSources)
-
-    isLoading.value = false
     await nextTick()
     if (editor.value) {
-      editor.value.innerHTML = contentHtml.value || ''
-      const restoredVideos = await restoreVideoSources()
-      if (restoredVideos.length) {
-        applyRestoredVideoUrlsToMedia(restoredVideos)
-      }
+      editor.value.innerHTML = contentHtml.value
       decorateVideoFigures()
       handleEditorInput()
     }
@@ -1905,9 +1153,7 @@ const loadArticleIfNeeded = async () => {
     loadError.value = error.message || 'Unable to load article.'
     resetEditor()
   } finally {
-    if (isLoading.value) {
-      isLoading.value = false
-    }
+    isLoading.value = false
   }
 }
 
@@ -1956,13 +1202,10 @@ onBeforeUnmount(() => {
   }
   if (coverUploadTimeout) {
     clearTimeout(coverUploadTimeout)
-    coverUploadTimeout = null
   }
   if (coverState.displaySource && coverState.displaySource.startsWith('blob:')) {
     URL.revokeObjectURL(coverState.displaySource)
   }
-  finalizePreviewDrag(mobilePreview, mobilePreviewDragState, isMobilePreviewDragging)
-  finalizePreviewDrag(detailPreview, detailPreviewDragState, isDetailPreviewDragging)
   if (editor.value) {
     editor.value.removeEventListener('click', onEditorClick)
   }
@@ -2047,7 +1290,6 @@ nextTick(() => {
 }
 
 .title-input {
-  box-sizing: border-box;
   width: 100%;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.14);
@@ -2268,12 +1510,6 @@ nextTick(() => {
   margin-top: 1.5rem;
 }
 
-.save-placeholder {
-  min-height: 2.75rem;
-  display: flex;
-  align-items: center;
-}
-
 .primary-button {
   padding: 0.65rem 1.5rem;
   border: none;
@@ -2301,10 +1537,6 @@ nextTick(() => {
   font-size: 0.9rem;
 }
 
-.save-message.info {
-  color: rgba(240, 244, 248, 0.7);
-}
-
 .save-message.success {
   color: #4ee080;
 }
@@ -2319,22 +1551,11 @@ nextTick(() => {
   margin: 1rem 0;
 }
 
-.editor-surface :deep(p) {
-  margin: 0;
-  padding: 0;
-  line-height: 1.2;
-  text-align: left;
-}
-
-.editor-surface :deep(p + p) {
-  margin-top: 0.12rem;
-}
-
 .editor-surface :deep(video) {
   display: block;
   max-width: 100%;
   border-radius: 14px;
-  margin: 0.6rem auto 0.2rem;
+  margin: 1.5rem auto;
   background: rgba(0, 0, 0, 0.2);
 }
 
@@ -2400,32 +1621,19 @@ nextTick(() => {
   overflow-y: auto;
   scrollbar-width: none;
   -ms-overflow-style: none;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-  -webkit-user-select: none;
-  overscroll-behavior: contain;
-  box-sizing: border-box;
 }
 
 .preview-card-mobile::-webkit-scrollbar {
   display: none;
 }
 
-.preview-card-mobile.is-dragging {
-  cursor: grabbing;
-}
-
 .preview-cover {
   position: relative;
   background: rgba(12, 20, 30, 0.85);
-  overflow: hidden;
 }
 
 .preview-cover img {
   width: 100%;
-  height: 100%;
-  object-fit: cover;
   display: block;
 }
 
@@ -2457,8 +1665,6 @@ nextTick(() => {
 .preview-card-body p {
   font-size: 0.95rem;
   color: rgba(240, 244, 248, 0.75);
-  overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 .preview-meta {
@@ -2492,25 +1698,9 @@ nextTick(() => {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
   display: flex;
   flex-direction: column;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
   height: 560px;
   width: 100%;
-  scrollbar-width: none;
-  -ms-overflow-style: none;
-  cursor: grab;
-  touch-action: none;
-  user-select: none;
-  overscroll-behavior: contain;
-  box-sizing: border-box;
-}
-
-.preview-detail::-webkit-scrollbar {
-  display: none;
-}
-
-.preview-detail.is-dragging {
-  cursor: grabbing;
 }
 
 .detail-header {
@@ -2543,15 +1733,11 @@ nextTick(() => {
   align-items: center;
   justify-content: center;
   min-height: 180px;
-  position: relative;
-  overflow: hidden;
 }
 
 .detail-cover img {
   width: 100%;
-  height: 100%;
   display: block;
-  object-fit: cover;
 }
 
 .detail-cover--empty {
@@ -2559,7 +1745,8 @@ nextTick(() => {
 }
 
 .detail-content {
-  flex: 0 0 auto;
+  flex: 1;
+  overflow-y: hidden;
   padding: 1.25rem 1.5rem;
 }
 
@@ -2567,8 +1754,6 @@ nextTick(() => {
   margin-bottom: 1rem;
   line-height: 1.6;
   font-size: 0.95rem;
-  overflow-wrap: anywhere;
-  word-break: break-word;
 }
 
 .detail-content :deep(img) {
