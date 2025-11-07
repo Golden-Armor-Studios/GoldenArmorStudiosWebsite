@@ -609,6 +609,7 @@ watch(
 
 .progress-slider {
   flex: 1;
+  width: 100%;
   appearance: none;
   height: 4px;
   border-radius: 999px;

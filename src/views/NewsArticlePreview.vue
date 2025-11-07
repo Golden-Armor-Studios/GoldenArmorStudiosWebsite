@@ -138,27 +138,86 @@
       <div v-if="isLoadingComments" class="comments-loading">Loading comments…</div>
       <ul v-else-if="comments.length" class="comment-list">
         <li v-for="comment in comments" :key="comment.id" class="comment-item">
-          <div class="comment-avatar">
-            <img v-if="comment.avatarUrl" :src="comment.avatarUrl" alt="Comment author avatar" />
-            <span v-else>{{ getInitial(comment.displayName) }}</span>
+          <div class="comment-avatar-stack">
+            <div class="comment-avatar">
+              <img v-if="comment.avatarUrl" :src="comment.avatarUrl" alt="Comment author avatar" />
+              <span v-else>{{ getInitial(comment.displayName) }}</span>
+            </div>
+            <button
+              type="button"
+              class="comment-flag-button"
+              :class="{ flagged: comment.flaggedByCurrentUser }"
+              :disabled="isCommentFlagPending(comment.id)"
+              @click="requestCommentFlag(comment)"
+            >
+              <svg viewBox="0 0 16 16" aria-hidden="true">
+                <path
+                  d="M3 2.5h7.2l.42 1.38a.5.5 0 0 0 .48.35H13a.5.5 0 0 1 .5.5V10a.5.5 0 0 1-.5.5h-1.8a.5.5 0 0 0-.48.35L10.2 12H3V2.5Z"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="1.2"
+                  stroke-linejoin="round"
+                />
+                <path
+                  d="M3 2.5v11"
+                  stroke="currentColor"
+                  stroke-width="1.2"
+                  stroke-linecap="round"
+                />
+              </svg>
+              <span>{{ comment.flagsCount || 0 }}</span>
+            </button>
           </div>
-          <div class="comment-body">
-          <div class="comment-meta">
-            <span class="comment-author">{{ comment.displayName || 'Anonymous' }}</span>
-            <span class="comment-date">{{ formatDate(comment.createdAt) }}</span>
-          </div>
-          <p class="comment-message">{{ comment.message }}</p>
+          <div class="comment-card">
+            <div class="comment-card-header">
+              <div class="comment-meta">
+                <span class="comment-author">{{ comment.displayName || 'Anonymous' }}</span>
+                <span class="comment-date">{{ formatDate(comment.createdAt) }}</span>
+              </div>
+              <button
+                type="button"
+                class="comment-like-button"
+                :class="{ liked: comment.likedByCurrentUser }"
+                :disabled="isCommentLikePending(comment.id)"
+                @click="toggleCommentLike(comment)"
+              >
+                <svg viewBox="0 0 20 20" aria-hidden="true">
+                  <path
+                    d="M10.45 17.4a1 1 0 0 1-.9 0c-2.3-1.2-7.55-4.42-7.55-9.15 0-2.4 1.8-4.25 4.12-4.25 1.32 0 2.52.63 3.33 1.72.81-1.09 2.01-1.72 3.33-1.72 2.32 0 4.12 1.85 4.12 4.25 0 4.73-5.25 7.95-7.55 9.15Z"
+                    :fill="comment.likedByCurrentUser ? 'currentColor' : 'none'"
+                    stroke="currentColor"
+                    stroke-width="1.5"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  />
+                </svg>
+                <span>{{ comment.likesCount || 0 }}</span>
+              </button>
+            </div>
+            <p class="comment-message">{{ comment.message }}</p>
           </div>
         </li>
       </ul>
       <div v-else class="no-comments">Be the first to leave a comment.</div>
     </section>
+    <transition name="modal-fade">
+      <div v-if="commentFlagModal.open" class="modal-backdrop" role="dialog" aria-modal="true">
+        <div class="modal-dialog">
+          <h3>Flag Comment</h3>
+          <p>Do you want to flag this comment as inappropriate?</p>
+          <div class="modal-actions">
+            <button type="button" class="ghost-button" @click="cancelCommentFlag">Cancel</button>
+            <button type="button" class="primary-button" @click="confirmCommentFlag">Yes, flag it</button>
+          </div>
+        </div>
+      </div>
+    </transition>
   </section>
   </div>
 </template>
 
 <script setup>
-import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '../firebase'
@@ -182,6 +241,12 @@ const isSubmittingComment = ref(false)
 const likesCount = ref(0)
 const hasLiked = ref(false)
 const isTogglingLike = ref(false)
+const commentLikePending = ref(new Set())
+const commentFlagPending = ref(new Set())
+const commentFlagModal = reactive({
+  open: false,
+  comment: null
+})
 const articleContentSegments = computed(() => {
   const html = article.value?.contentHtml
   if (!html || typeof window === 'undefined') return []
@@ -266,6 +331,30 @@ const trackEngagementEvent = (action, params = {}) => {
     ...params
   })
 }
+
+const setCommentLikePending = (id, pending) => {
+  const next = new Set(commentLikePending.value)
+  if (pending) {
+    next.add(id)
+  } else {
+    next.delete(id)
+  }
+  commentLikePending.value = next
+}
+
+const isCommentLikePending = (id) => commentLikePending.value.has(id)
+
+const setCommentFlagPending = (id, pending) => {
+  const next = new Set(commentFlagPending.value)
+  if (pending) {
+    next.add(id)
+  } else {
+    next.delete(id)
+  }
+  commentFlagPending.value = next
+}
+
+const isCommentFlagPending = (id) => commentFlagPending.value.has(id)
 
 const toDate = (value) => {
   if (!value) return null
@@ -379,7 +468,12 @@ const loadComments = async () => {
   try {
     const callable = httpsCallable(functions, 'getPublishedNewsComments')
     const response = await callable({ id: article.value.id, limit: 100 })
-    comments.value = Array.isArray(response.data?.comments) ? response.data.comments : []
+    const raw = Array.isArray(response.data?.comments) ? response.data.comments : []
+    comments.value = raw.map((comment) => ({
+      ...comment,
+      likesCount: typeof comment.likesCount === 'number' ? comment.likesCount : 0,
+      likedByCurrentUser: Boolean(comment.likedByCurrentUser)
+    }))
   } catch (err) {
     console.error(err)
     toast.error(err.message || 'Unable to load comments.')
@@ -449,6 +543,111 @@ const toggleLike = async () => {
   }
 }
 
+const toggleCommentLike = async (comment) => {
+  if (!article.value?.id || !comment?.id) {
+    return
+  }
+
+  trackEngagementEvent('comment_like_click', {
+    authenticated: isAuthenticated.value ? 'yes' : 'no',
+    comment_id: comment.id,
+    current_state: comment.likedByCurrentUser ? 'liked' : 'unliked'
+  })
+
+  if (!isAuthenticated.value) {
+    toast.info('Sign in to like comments.')
+    return
+  }
+
+  if (isCommentLikePending(comment.id)) {
+    return
+  }
+
+  setCommentLikePending(comment.id, true)
+  try {
+    const callable = httpsCallable(functions, 'toggleNewsCommentLike')
+    const response = await callable({ newsId: article.value.id, commentId: comment.id })
+    const updated = comments.value.find((item) => item.id === comment.id)
+    if (updated) {
+      if (typeof response.data?.likesCount === 'number') {
+        updated.likesCount = Math.max(0, response.data.likesCount)
+      }
+      if (typeof response.data?.liked !== 'undefined') {
+        updated.likedByCurrentUser = Boolean(response.data.liked)
+      }
+    }
+  } catch (err) {
+    console.error(err)
+    toast.error(err.message || 'Unable to update comment like.')
+  } finally {
+    setCommentLikePending(comment.id, false)
+  }
+}
+
+const performCommentFlagToggle = async (comment) => {
+  if (!article.value?.id || !comment?.id) {
+    return
+  }
+
+  trackEngagementEvent('comment_flag_click', {
+    authenticated: isAuthenticated.value ? 'yes' : 'no',
+    comment_id: comment.id,
+    current_state: comment.flaggedByCurrentUser ? 'flagged' : 'unflagged'
+  })
+
+  if (!isAuthenticated.value) {
+    toast.info('Sign in to report comments.')
+    return
+  }
+
+  if (isCommentFlagPending(comment.id)) {
+    return
+  }
+
+  setCommentFlagPending(comment.id, true)
+  try {
+    const callable = httpsCallable(functions, 'toggleNewsCommentFlag')
+    const response = await callable({ newsId: article.value.id, commentId: comment.id })
+    const updated = comments.value.find((item) => item.id === comment.id)
+    if (updated) {
+      if (typeof response.data?.flagsCount === 'number') {
+        updated.flagsCount = Math.max(0, response.data.flagsCount)
+      }
+      if (typeof response.data?.flagged !== 'undefined') {
+        updated.flaggedByCurrentUser = Boolean(response.data.flagged)
+      }
+    }
+  } catch (err) {
+    console.error(err)
+    toast.error(err.message || 'Unable to update comment flag.')
+  } finally {
+    setCommentFlagPending(comment.id, false)
+  }
+}
+
+const requestCommentFlag = (comment) => {
+  if (!comment || !article.value?.id) return
+  if (!comment.flaggedByCurrentUser) {
+    commentFlagModal.comment = comment
+    commentFlagModal.open = true
+    return
+  }
+  performCommentFlagToggle(comment)
+}
+
+const confirmCommentFlag = () => {
+  if (!commentFlagModal.comment) return
+  const target = commentFlagModal.comment
+  commentFlagModal.open = false
+  commentFlagModal.comment = null
+  performCommentFlagToggle(target)
+}
+
+const cancelCommentFlag = () => {
+  commentFlagModal.open = false
+  commentFlagModal.comment = null
+}
+
 const submitComment = async () => {
   if (!canEngage.value || !article.value?.id || isSubmittingComment.value) {
     if (!isAuthenticated.value) {
@@ -472,7 +671,12 @@ const submitComment = async () => {
     const response = await addComment({ id: article.value.id, message: trimmed })
     const newComment = response.data?.comment
     if (newComment) {
-      comments.value = [newComment, ...comments.value]
+      const hydrated = {
+        ...newComment,
+        likesCount: typeof newComment.likesCount === 'number' ? newComment.likesCount : 0,
+        likedByCurrentUser: Boolean(newComment.likedByCurrentUser)
+      }
+      comments.value = [hydrated, ...comments.value]
       article.value = {
         ...article.value,
         commentsCount: typeof response.data?.commentsCount === 'number'
@@ -490,12 +694,24 @@ const submitComment = async () => {
   }
 }
 
+const handleGlobalKeydown = (event) => {
+  if (event.key === 'Escape' && commentFlagModal.open) {
+    event.preventDefault()
+    cancelCommentFlag()
+  }
+}
+
 const getInitial = (value) => {
   if (typeof value !== 'string' || !value.trim()) return '?'
   return value.trim().charAt(0).toUpperCase()
 }
 
-onMounted(loadArticle)
+onMounted(() => {
+  loadArticle()
+  if (typeof window !== 'undefined') {
+    window.addEventListener('keydown', handleGlobalKeydown)
+  }
+})
 
 watch(isAuthenticated, (authenticated) => {
   if (authenticated && article.value?.id) {
@@ -521,6 +737,9 @@ onBeforeUnmount(() => {
   const video = videoRef.value
   if (video) {
     video.pause()
+  }
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('keydown', handleGlobalKeydown)
   }
 })
 </script>
@@ -858,19 +1077,30 @@ onBeforeUnmount(() => {
 .comment-item {
   display: flex;
   gap: 1rem;
+  align-items: flex-start;
+}
+
+.comment-avatar-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.55rem;
+  flex-shrink: 0;
+  min-width: 48px;
 }
 
 .comment-avatar {
-  width: 40px;
-  height: 40px;
+  width: 42px;
+  height: 42px;
   border-radius: 50%;
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   display: flex;
   align-items: center;
   justify-content: center;
   font-weight: 600;
   color: rgba(240, 244, 248, 0.85);
   overflow: hidden;
+  flex-shrink: 0;
 }
 
 .comment-avatar img {
@@ -879,18 +1109,31 @@ onBeforeUnmount(() => {
   object-fit: cover;
 }
 
-.comment-body {
+.comment-card {
   flex: 1;
+  background: rgba(14, 24, 36, 0.9);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 16px;
+  padding: 0.9rem 1rem 1rem;
   display: flex;
   flex-direction: column;
-  gap: 0.4rem;
+  gap: 0.65rem;
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.35);
+}
+
+.comment-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
 }
 
 .comment-meta {
   display: flex;
-  gap: 0.75rem;
+  flex-direction: column;
+  gap: 0.2rem;
   font-size: 0.85rem;
-  color: rgba(240, 244, 248, 0.6);
+  color: rgba(240, 244, 248, 0.65);
 }
 
 .comment-author {
@@ -898,10 +1141,145 @@ onBeforeUnmount(() => {
   color: #f0f4f8;
 }
 
+.comment-date {
+  font-size: 0.8rem;
+}
+
 .comment-message {
   margin: 0;
   white-space: pre-wrap;
   line-height: 1.5;
+  color: rgba(240, 244, 248, 0.92);
+}
+
+.comment-like-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(240, 244, 248, 0.85);
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+  font-size: 0.8rem;
+}
+
+.comment-like-button svg {
+  width: 16px;
+  height: 16px;
+}
+
+.comment-like-button:hover:not(:disabled),
+.comment-like-button:focus-visible:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.2);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.comment-like-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.comment-like-button.liked {
+  background: rgba(78, 224, 128, 0.18);
+  border-color: rgba(78, 224, 128, 0.4);
+  color: #4ee080;
+}
+
+.comment-flag-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.25rem 0.45rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.05);
+  color: rgba(240, 244, 248, 0.75);
+  font-size: 0.7rem;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease, border-color 0.2s ease;
+}
+
+.comment-flag-button svg {
+  width: 14px;
+  height: 14px;
+}
+
+.comment-flag-button:hover:not(:disabled),
+.comment-flag-button:focus-visible:not(:disabled) {
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.22);
+  outline: none;
+  transform: translateY(-1px);
+}
+
+.comment-flag-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.comment-flag-button.flagged {
+  background: rgba(255, 122, 122, 0.2);
+  border-color: rgba(255, 122, 122, 0.4);
+  color: #ff8b8b;
+}
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(4, 10, 18, 0.75);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  z-index: 1000;
+}
+
+.modal-dialog {
+  background: rgba(12, 20, 30, 0.95);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 18px;
+  padding: 1.75rem 2rem;
+  box-shadow: 0 18px 48px rgba(0, 0, 0, 0.45);
+  max-width: 420px;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  text-align: center;
+}
+
+.modal-dialog h3 {
+  margin: 0;
+  font-size: 1.35rem;
+  color: #f0f4f8;
+}
+
+.modal-dialog p {
+  margin: 0;
+  font-size: 0.95rem;
+  color: rgba(240, 244, 248, 0.72);
+}
+
+.modal-actions {
+  margin-top: 0.5rem;
+  display: flex;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.modal-fade-enter-active,
+.modal-fade-leave-active {
+  transition: opacity 0.2s ease;
+}
+
+.modal-fade-enter-from,
+.modal-fade-leave-to {
+  opacity: 0;
 }
 
 .no-comments {

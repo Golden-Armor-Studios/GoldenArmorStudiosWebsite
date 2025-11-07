@@ -14,6 +14,8 @@ const articleCache = new Map();
 const getNewsRef = (newsId) => admin.firestore().collection(NEWS_COLLECTION).doc(newsId);
 const getCommentsRef = (newsId) => getNewsRef(newsId).collection("comments");
 const getLikesRef = (newsId) => getNewsRef(newsId).collection("likes");
+const getCommentLikesRef = (newsId, commentId) => getCommentsRef(newsId).doc(commentId).collection("likes");
+const getCommentFlagsRef = (newsId, commentId) => getCommentsRef(newsId).doc(commentId).collection("flags");
 
 const sanitizeArticleForCache = (articleData) => {
   if (!articleData || typeof articleData !== "object") return null;
@@ -332,7 +334,10 @@ const addNewsComment = functions.https.onCall(async (data, context) => {
 			displayName,
 			avatarUrl,
 			message: sanitizedMessage,
-			createdAt: admin.firestore.FieldValue.serverTimestamp()
+			createdAt: admin.firestore.FieldValue.serverTimestamp(),
+			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			likesCount: 0,
+			flagsCount: 0
 		});
 
 		transaction.update(newsRef, {
@@ -364,13 +369,17 @@ const addNewsComment = functions.https.onCall(async (data, context) => {
 			displayName,
 			avatarUrl,
 			message: sanitizedMessage,
-			createdAt
+			createdAt,
+			likesCount: 0,
+			likedByCurrentUser: false,
+			flagsCount: 0,
+			flaggedByCurrentUser: false
 		},
 		commentsCount
 	};
 });
 
-const getPublishedNewsComments = functions.https.onCall(async (data) => {
+const getPublishedNewsComments = functions.https.onCall(async (data, context) => {
 	const { id, limit } = data || {};
 	if (typeof id !== "string" || !id.trim()) {
 		throw new functions.https.HttpsError("invalid-argument", "A valid article ID is required.");
@@ -393,17 +402,39 @@ const getPublishedNewsComments = functions.https.onCall(async (data) => {
 		.limit(fetchLimit)
 		.get();
 
-	const comments = commentsSnapshot.docs.map((doc) => {
+	const viewerUid = context.auth?.uid || null;
+
+	const comments = await Promise.all(commentsSnapshot.docs.map(async (doc) => {
 		const data = doc.data() || {};
+		let likedByCurrentUser = false;
+		let flaggedByCurrentUser = false;
+		if (viewerUid) {
+			try {
+				const likeSnapshot = await getCommentLikesRef(newsId, doc.id).doc(viewerUid).get();
+				likedByCurrentUser = likeSnapshot.exists;
+			} catch (error) {
+				functions.logger.debug("Failed to fetch comment like state", { newsId, commentId: doc.id, uid: viewerUid, error });
+			}
+			try {
+				const flagSnapshot = await getCommentFlagsRef(newsId, doc.id).doc(viewerUid).get();
+				flaggedByCurrentUser = flagSnapshot.exists;
+			} catch (error) {
+				functions.logger.debug("Failed to fetch comment flag state", { newsId, commentId: doc.id, uid: viewerUid, error });
+			}
+		}
 		return {
 			id: doc.id,
 			uid: data.uid || null,
 			displayName: data.displayName || "Anonymous",
 			avatarUrl: data.avatarUrl || null,
 			message: data.message || "",
-			createdAt: data.createdAt || null
+			createdAt: data.createdAt || null,
+			likesCount: Number.isFinite(data.likesCount) ? data.likesCount : 0,
+			likedByCurrentUser,
+			flagsCount: Number.isFinite(data.flagsCount) ? data.flagsCount : 0,
+			flaggedByCurrentUser
 		};
-	});
+	}));
 
 	return { comments };
 });
@@ -467,6 +498,138 @@ const toggleNewsLike = functions.https.onCall(async (data, context) => {
 	} catch (error) {
 		functions.logger.debug("Failed to update cached article after like toggle", { id: newsId, uid: context.auth.uid, error });
 	}
+
+	return result;
+});
+
+const toggleNewsCommentLike = functions.https.onCall(async (data, context) => {
+	if (!context.auth) {
+		throw new functions.https.HttpsError("unauthenticated", "You must be signed in to like a comment.");
+	}
+
+	const { newsId, commentId } = data || {};
+	if (typeof newsId !== "string" || !newsId.trim()) {
+		throw new functions.https.HttpsError("invalid-argument", "A valid article ID is required.");
+	}
+	if (typeof commentId !== "string" || !commentId.trim()) {
+		throw new functions.https.HttpsError("invalid-argument", "A valid comment ID is required.");
+	}
+
+	const trimmedNewsId = newsId.trim();
+	const trimmedCommentId = commentId.trim();
+	const newsRef = getNewsRef(trimmedNewsId);
+	const commentRef = getCommentsRef(trimmedNewsId).doc(trimmedCommentId);
+	const likeRef = getCommentLikesRef(trimmedNewsId, trimmedCommentId).doc(context.auth.uid);
+	const result = {
+		liked: false,
+		likesCount: 0
+	};
+
+	await admin.firestore().runTransaction(async (transaction) => {
+		const newsSnapshot = await transaction.get(newsRef);
+		if (!newsSnapshot.exists) {
+			throw new functions.https.HttpsError("not-found", "News article not found.");
+		}
+		const newsData = newsSnapshot.data() || {};
+		if ((newsData.status || "draft") !== "published") {
+			throw new functions.https.HttpsError("permission-denied", "Comments are only available on published news.");
+		}
+
+		const commentSnapshot = await transaction.get(commentRef);
+		if (!commentSnapshot.exists) {
+			throw new functions.https.HttpsError("not-found", "Comment not found.");
+		}
+		const commentData = commentSnapshot.data() || {};
+
+		const likeSnapshot = await transaction.get(likeRef);
+		const increment = likeSnapshot.exists ? -1 : 1;
+
+		if (likeSnapshot.exists) {
+			transaction.delete(likeRef);
+			result.liked = false;
+		} else {
+			transaction.set(likeRef, {
+				uid: context.auth.uid,
+				createdAt: admin.firestore.FieldValue.serverTimestamp()
+			});
+			result.liked = true;
+		}
+
+		const currentLikes = Number.isFinite(commentData.likesCount) ? commentData.likesCount : 0;
+		const newLikes = Math.max(0, currentLikes + increment);
+		result.likesCount = newLikes;
+
+		transaction.update(commentRef, {
+			likesCount: admin.firestore.FieldValue.increment(increment),
+			updatedAt: admin.firestore.FieldValue.serverTimestamp()
+		});
+	});
+
+	return result;
+});
+
+const toggleNewsCommentFlag = functions.https.onCall(async (data, context) => {
+	if (!context.auth) {
+		throw new functions.https.HttpsError("unauthenticated", "You must be signed in to flag a comment.");
+	}
+
+	const { newsId, commentId } = data || {};
+	if (typeof newsId !== "string" || !newsId.trim()) {
+		throw new functions.https.HttpsError("invalid-argument", "A valid article ID is required.");
+	}
+	if (typeof commentId !== "string" || !commentId.trim()) {
+		throw new functions.https.HttpsError("invalid-argument", "A valid comment ID is required.");
+	}
+
+	const trimmedNewsId = newsId.trim();
+	const trimmedCommentId = commentId.trim();
+	const newsRef = getNewsRef(trimmedNewsId);
+	const commentRef = getCommentsRef(trimmedNewsId).doc(trimmedCommentId);
+	const flagRef = getCommentFlagsRef(trimmedNewsId, trimmedCommentId).doc(context.auth.uid);
+	const result = {
+		flagged: false,
+		flagsCount: 0
+	};
+
+	await admin.firestore().runTransaction(async (transaction) => {
+		const newsSnapshot = await transaction.get(newsRef);
+		if (!newsSnapshot.exists) {
+			throw new functions.https.HttpsError("not-found", "News article not found.");
+		}
+		const newsData = newsSnapshot.data() || {};
+		if ((newsData.status || "draft") !== "published") {
+			throw new functions.https.HttpsError("permission-denied", "Comments are only available on published news.");
+		}
+
+		const commentSnapshot = await transaction.get(commentRef);
+		if (!commentSnapshot.exists) {
+			throw new functions.https.HttpsError("not-found", "Comment not found.");
+		}
+		const commentData = commentSnapshot.data() || {};
+
+		const flagSnapshot = await transaction.get(flagRef);
+		const increment = flagSnapshot.exists ? -1 : 1;
+
+		if (flagSnapshot.exists) {
+			transaction.delete(flagRef);
+			result.flagged = false;
+		} else {
+			transaction.set(flagRef, {
+				uid: context.auth.uid,
+				createdAt: admin.firestore.FieldValue.serverTimestamp()
+			});
+			result.flagged = true;
+		}
+
+		const currentFlags = Number.isFinite(commentData.flagsCount) ? commentData.flagsCount : 0;
+		const newFlags = Math.max(0, currentFlags + increment);
+		result.flagsCount = newFlags;
+
+		transaction.update(commentRef, {
+			flagsCount: admin.firestore.FieldValue.increment(increment),
+			updatedAt: admin.firestore.FieldValue.serverTimestamp()
+		});
+	});
 
 	return result;
 });
@@ -777,6 +940,8 @@ module.exports = {
 	addNewsComment,
 	getPublishedNewsComments,
 	toggleNewsLike,
+	toggleNewsCommentLike,
+	toggleNewsCommentFlag,
 	getNewsEngagement,
 	updateNewsStatus,
 	getNewsArticle,
