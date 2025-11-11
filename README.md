@@ -23,6 +23,10 @@ Fans can donate directly through the site. Payments are processed with Stripe an
 - [Stripe](https://stripe.com/docs/js) for secure donation processing
 - Responsive layout crafted with modern CSS, custom video hero assets, and toast notifications
 
+## Documentation
+- [API Reference](https://github.com/Golden-Armor-Studios/GoldenArmorStudiosWebsite/wiki/API-Reference) — callable/HTTP Firebase Functions, payload contracts, and examples.
+- [Wiki Home](https://github.com/Golden-Armor-Studios/GoldenArmorStudiosWebsite/wiki/Home) — build notes, deployment guides, and collaboration links.
+
 ## Local Development
 1. Install dependencies:
    ```bash
