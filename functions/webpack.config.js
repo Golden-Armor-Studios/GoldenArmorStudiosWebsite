@@ -9,6 +9,9 @@ module.exports = {
 		path: path.resolve(__dirname, "dist"),
 		libraryTarget: "commonjs2"
 	},
+	cache: {
+		type: "filesystem"
+	},
 	resolve: {
 		extensions: [".js"]
 	},

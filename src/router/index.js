@@ -1,5 +1,9 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import NewsFeedView from '../views/NewsFeedView.vue'
+import NewsEditorView from '../views/NewsEditorView.vue'
+import NewsListView from '../views/NewsListView.vue'
+import NewsPublicListView from '../views/NewsPublicListView.vue'
+import NewsArticlePreview from '../views/NewsArticlePreview.vue'
 import HomeView from '../views/HomeView.vue'
 import LoginView from '../views/LoginView.vue'
 import RepoOverviewView from '../views/RepoOverviewView.vue'
@@ -73,6 +77,54 @@ const routes = [
     meta: {
       requiresAuth: true,
       requiresGroup: 'developer'
+    }
+  },
+  {
+    path: '/news-editor',
+    name: 'NewsEditor',
+    component: NewsEditorView,
+    meta: {
+      requiresAuth: true,
+      requiresGroup: 'admin'
+    }
+  },
+  {
+    path: '/manage-news',
+    name: 'ManageNews',
+    component: NewsListView,
+    meta: {
+      requiresAuth: true,
+      requiresGroup: 'admin'
+    }
+  },
+  {
+    path: '/manage-news/:id',
+    name: 'NewsAdminPreview',
+    component: NewsArticlePreview,
+    meta: {
+      requiresAuth: true,
+      requiresGroup: 'admin'
+    }
+  },
+  {
+    path: '/news',
+    name: 'NewsPublicList',
+    component: NewsPublicListView
+  },
+  {
+    path: '/news/:id',
+    name: 'NewsPublicPreview',
+    component: NewsArticlePreview,
+    meta: {
+      publicNews: true
+    }
+  },
+  {
+    path: '/app/news/:id',
+    name: 'NewsAppAlias',
+    component: NewsArticlePreview,
+    meta: {
+      publicNews: true
     }
   },
   {

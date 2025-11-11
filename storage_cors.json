@@ -1,0 +1,13 @@
+[
+  {
+    "origin": [
+      "http://localhost:8080",
+      "https://goldenarmorstudio.web.app",
+      "https://goldenarmorstudio.firebaseapp.com",
+      "https://goldenarmorstudio.art"
+    ],
+    "method": ["GET", "HEAD", "OPTIONS"],
+    "responseHeader": ["Content-Type", "Cache-Control"],
+    "maxAgeSeconds": 3600
+  }
+]
