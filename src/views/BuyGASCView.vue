@@ -18,6 +18,9 @@
 					<p class="ticker-label">GASC (per token)</p>
 					<p class="ticker-value price-emphasis">{{ gascPriceDisplay }}</p>
 				</div>
+				<button type="button" class="share-button" @click="sharePurchase" aria-label="Share purchase link">
+					Share
+				</button>
 			</div>
 			<form class="donation-form" @submit.prevent="handlePurchase">
 				<div class="field-row">
@@ -189,6 +192,27 @@ const fetchPriceQuote = async (overrideAmount = null) => {
 const refreshQuoteForAmount = () => {
 	if (!isProcessing.value) {
 		fetchPriceQuote()
+	}
+}
+
+const sharePurchase = async () => {
+	try {
+		const shareData = {
+			title: 'Support Future Worlds',
+			text: 'Purchase GASC to back new Golden Armor Studio prototypes.',
+			url: 'https://goldenarmorstudio.art/buy-gasc'
+		}
+		if (navigator.share) {
+			await navigator.share(shareData)
+		} else if (navigator.clipboard?.writeText) {
+			await navigator.clipboard.writeText(shareData.url)
+			toast.success('Link copied to clipboard!')
+		} else {
+			toast.info('Share this link: https://goldenarmorstudio.art/buy-gasc')
+		}
+	} catch (error) {
+		console.error('Share failed', error)
+		toast.error('Unable to share link right now.')
 	}
 }
 
@@ -420,9 +444,10 @@ onBeforeUnmount(() => {
 	.price-ticker {
 		display: flex;
 		flex-wrap: wrap;
-		gap: 1.5rem;
+		gap: 1rem;
 		justify-content: center;
 		width: 100%;
+		align-items: center;
 	}
 
 	.ticker-card {
@@ -516,6 +541,17 @@ onBeforeUnmount(() => {
 
 	.success-message {
 		color: #4bd87a;
+	}
+
+	.share-button {
+		margin-left: auto;
+		padding: 0.4rem 1rem;
+		border-radius: 999px;
+		border: 1px solid rgba(255, 255, 255, 0.35);
+		background: transparent;
+		color: #f6f7f9;
+		font-weight: 600;
+		cursor: pointer;
 	}
 
 	@media (max-width: 600px) {

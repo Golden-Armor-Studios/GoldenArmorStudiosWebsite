@@ -72,7 +72,7 @@
 					<button class="print-button" type="button" @click="printTransactions" :disabled="isFetchingTransactions || nftTransactions.length === 0">
 						Export history
 					</button>
-					<RouterLink class="cta-button" to="/app/buy-gasc">
+					<RouterLink class="cta-button" to="/buy-gasc">
 						Purchase GASC
 					</RouterLink>
 				</div>
