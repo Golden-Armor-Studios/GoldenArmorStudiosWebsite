@@ -11,7 +11,7 @@
     "postinstall": "node scripts/fix-eslint-chalk.js"
   },
   "dependencies": {
-    "@ffmpeg/ffmpeg": "0.12.10",
+    "@ffmpeg/ffmpeg": "^0.12.10",
     "@stripe/stripe-js": "^8.1.0",
     "core-js": "^3.8.3",
     "firebase": "^10.14.1",

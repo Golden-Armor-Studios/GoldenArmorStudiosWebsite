@@ -43,6 +43,10 @@
         "function": "updateUserGroups"
       },
       {
+        "source": "/purchaseNft",
+        "function": "purchaseNft"
+      },
+      {
         "source": "/deleteUserAccount",
         "function": "deleteUserAccount"
       },

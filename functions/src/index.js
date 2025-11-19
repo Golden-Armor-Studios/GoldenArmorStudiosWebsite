@@ -2,6 +2,7 @@
 
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const { ethers } = require("ethers");
 const crypto = require("node:crypto");
 
 admin.initializeApp();
@@ -11,6 +12,12 @@ const NEWS_STORAGE_PREFIX = "News";
 const storageBucket = admin.storage().bucket(STORAGE_BUCKET);
 
 let stripeInstance = null;
+let onChainIssuer = null;
+
+const PRICING_TOTAL_COINS = Number(functions.config().pricing?.total_coins ?? 1_000_000);
+const PRICING_ADJUSTMENT_K = Number(functions.config().pricing?.adjustment_k ?? 5e-8);
+const ETH_PRICE_ENDPOINT = functions.config().pricing?.eth_api
+	?? "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd";
 
 const getStripeClient = () => {
 	const stripeSecret = functions.config().stripe?.secret;
@@ -26,6 +33,87 @@ const getStripeClient = () => {
 	}
 
 	return stripeInstance;
+};
+
+const getOnChainIssuer = () => {
+	const rpcUrl = functions.config().chain?.rpc_url;
+	const privateKey = functions.config().chain?.private_key;
+	const contractAddress = functions.config().chain?.nft_contract;
+
+	if (!rpcUrl || !privateKey || !contractAddress) {
+		throw new functions.https.HttpsError(
+			"failed-precondition",
+			"Blockchain configuration missing. Set functions config `chain.rpc_url`, `chain.private_key`, and `chain.nft_contract`."
+		);
+	}
+
+	if (!onChainIssuer) {
+		const provider = new ethers.JsonRpcProvider(rpcUrl);
+		const signer = new ethers.Wallet(privateKey, provider);
+		const abi = [
+			"function mint(address to, uint256 amount) external"
+		];
+		const contract = new ethers.Contract(contractAddress, abi, signer);
+		onChainIssuer = { contract, provider };
+	}
+
+	return onChainIssuer;
+};
+
+const fetchEthPriceUSD = async () => {
+	try {
+		const controller = new AbortController();
+		const timeout = setTimeout(() => controller.abort(), 7000);
+		const response = await fetch(ETH_PRICE_ENDPOINT, { signal: controller.signal });
+		clearTimeout(timeout);
+		if (!response.ok) {
+			throw new Error(`Unexpected status ${response.status}`);
+		}
+		const json = await response.json();
+		const price = Number(json?.ethereum?.usd ?? json?.market_data?.current_price?.usd);
+		if (!Number.isFinite(price) || price <= 0) {
+			throw new Error("Invalid ETH price payload.");
+		}
+		return price;
+	} catch (error) {
+		functions.logger.error("Failed to fetch ETH price", error);
+		throw new functions.https.HttpsError("internal", "Unable to load ETH price.");
+	}
+};
+
+const getTokensPerEther = async () => {
+	try {
+		const { contract } = getOnChainIssuer();
+		const value = await contract.tokensPerEther();
+		const parsed = Number(value);
+		if (Number.isFinite(parsed) && parsed > 0) {
+			return parsed;
+		}
+		return 1000;
+	} catch (error) {
+		functions.logger.warn("Falling back to default tokensPerEther", error);
+		return 1000;
+	}
+};
+
+const sumNftIssuances = async () => {
+	const snapshot = await admin.firestore().collection("nftIssuances").get();
+	let total = 0;
+	snapshot.forEach((doc) => {
+		total += Number(doc.get("nftAmount")) || 0;
+	});
+	return total;
+};
+
+const computeAdjustment = (sold, ethPrice) => {
+	if (!Number.isFinite(ethPrice) || ethPrice <= 0) {
+		return 0;
+	}
+	const ratio = Math.max(Number(sold) || 0, 0) / PRICING_TOTAL_COINS;
+	if (ratio <= 0) {
+		return 0;
+	}
+	return ratio / (PRICING_ADJUSTMENT_K * ethPrice);
 };
 
 const allowedGroups = ["member", "subscriber", "donor", "admin", "developer"];
@@ -443,40 +531,75 @@ exports.createStripeSetupIntent = functions.https.onCall(async (data, context) =
 	}
 });
 
-const addDonorTransaction = async (uid, amount, currency, paymentIntentId, metadata = {}) => {
+const updateUserTransactions = async (uid, transaction, options = {}) => {
+	const {
+		ensureGroups = [],
+		syncClaims = false,
+		mutateUserData
+	} = options;
+
 	const userRef = admin.firestore().collection("users").doc(uid);
 	const userDoc = await userRef.get();
 	const data = userDoc.exists ? userDoc.data() || {} : {};
 	const existingGroups = Array.isArray(data.groups) ? data.groups : [];
-	const groups = Array.from(new Set([...existingGroups, "member", "donor"]));
+	const groups = Array.from(new Set([...existingGroups, "member", ...ensureGroups]));
 	const transactions = Array.isArray(data.transactions) ? data.transactions : [];
 
-	const createdAt = admin.firestore.Timestamp.now();
+	const createdAt = transaction.createdAt ?? admin.firestore.Timestamp.now();
 	transactions.push({
-		amount,
-		currency,
-		paymentIntentId,
-		productId: metadata.productId || null,
-		note: metadata.note || null,
+		...transaction,
 		createdAt
 	});
 
 	const trimmedTransactions = transactions.slice(-100);
 
+	const extraFields = typeof mutateUserData === "function" ? mutateUserData(data) || {} : {};
+
 	await userRef.set(
 		{
 			groups,
 			transactions: trimmedTransactions,
-			updatedAt: admin.firestore.FieldValue.serverTimestamp()
+			updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+			...extraFields
 		},
 		{merge: true}
 	);
 
-	const userRecord = await admin.auth().getUser(uid);
-	const currentClaims = userRecord.customClaims || {};
-	const claimGroups = Array.isArray(currentClaims.groups) ? currentClaims.groups : [];
-	const updatedClaimsGroups = Array.from(new Set([...claimGroups, "member", "donor"]));
-	await admin.auth().setCustomUserClaims(uid, { ...currentClaims, groups: updatedClaimsGroups });
+	if (syncClaims && ensureGroups.length) {
+		const userRecord = await admin.auth().getUser(uid);
+		const currentClaims = userRecord.customClaims || {};
+		const claimGroups = Array.isArray(currentClaims.groups) ? currentClaims.groups : [];
+		const updatedClaimsGroups = Array.from(new Set([...claimGroups, ...ensureGroups, "member"]));
+		await admin.auth().setCustomUserClaims(uid, { ...currentClaims, groups: updatedClaimsGroups });
+	}
+};
+
+const createDepositFieldUpdater = (depositAddress) => (existingData = {}) => {
+	const existingAddresses = Array.isArray(existingData.depositAddresses) ? existingData.depositAddresses : [];
+	const updatedAddresses = Array.from(new Set([...existingAddresses, depositAddress])).slice(-50);
+	return {
+		depositAddresses: updatedAddresses,
+		lastDepositAddress: depositAddress
+	};
+};
+
+const addDonorTransaction = async (uid, amount, currency, paymentIntentId, metadata = {}) => {
+	const createdAt = admin.firestore.Timestamp.now();
+	await updateUserTransactions(
+		uid,
+		{
+			amount,
+			currency,
+			paymentIntentId,
+			productId: metadata.productId || null,
+			note: metadata.note || null,
+			createdAt
+		},
+		{
+			ensureGroups: ["donor"],
+			syncClaims: true
+		}
+	);
 };
 
 exports.recordDonation = functions.https.onCall(async (data, context) => {
@@ -511,6 +634,119 @@ exports.recordDonation = functions.https.onCall(async (data, context) => {
 			throw error;
 		}
 		throw new functions.https.HttpsError("internal", "Unable to record donation.");
+	}
+});
+
+const issueNftsOnChain = async (recipient, nftAmount) => {
+	const { contract } = getOnChainIssuer();
+	const normalizedAmount = ethers.toBigInt(nftAmount);
+	const tx = await contract.mint(recipient, normalizedAmount);
+	const receipt = await tx.wait();
+	return receipt?.hash || tx.hash;
+};
+
+exports.purchaseNft = functions.https.onCall(async (data, context) => {
+	ensureAuthenticated(context);
+	const stripe = getStripeClient();
+
+	const { paymentIntentId, depositAddress, nftAmount } = data || {};
+
+	if (typeof paymentIntentId !== "string" || paymentIntentId.trim().length === 0) {
+		throw new functions.https.HttpsError("invalid-argument", "A valid paymentIntentId is required.");
+	}
+
+	const normalizedAddress = typeof depositAddress === "string" ? depositAddress.trim() : "";
+	if (!normalizedAddress) {
+		throw new functions.https.HttpsError("invalid-argument", "A deposit address is required.");
+	}
+
+	const parsedNftAmount = Number(nftAmount ?? 0);
+	if (!Number.isFinite(parsedNftAmount) || parsedNftAmount <= 0) {
+		throw new functions.https.HttpsError("invalid-argument", "A positive nftAmount is required.");
+	}
+
+	try {
+		const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+		if (!paymentIntent || paymentIntent.status !== "succeeded") {
+			throw new functions.https.HttpsError("failed-precondition", "Payment is not complete.");
+		}
+
+		const recordedAmount = Number(paymentIntent.amount_received ?? paymentIntent.amount ?? 0);
+		const recordedCurrency = (paymentIntent.currency || "usd").toLowerCase();
+
+		const chainTxHash = await issueNftsOnChain(normalizedAddress, parsedNftAmount);
+
+		await updateUserTransactions(
+			context.auth.uid,
+			{
+				type: "nft_purchase",
+				amount: recordedAmount,
+				currency: recordedCurrency,
+				paymentIntentId: paymentIntent.id,
+				nftAmount: parsedNftAmount,
+				depositAddress: normalizedAddress,
+				chainTxHash,
+				productId: paymentIntent.metadata?.productId || null,
+				note: paymentIntent.metadata?.note || null
+			},
+			{
+				mutateUserData: createDepositFieldUpdater(normalizedAddress)
+			}
+		);
+
+		await admin.firestore().collection("nftIssuances").add({
+			uid: context.auth.uid,
+			paymentIntentId: paymentIntent.id,
+			depositAddress: normalizedAddress,
+			nftAmount: parsedNftAmount,
+			amount: recordedAmount,
+			currency: recordedCurrency,
+			chainTxHash,
+			createdAt: admin.firestore.FieldValue.serverTimestamp()
+		});
+
+		return {
+			success: true,
+			nftAmount: parsedNftAmount,
+			depositAddress: normalizedAddress,
+			chainTxHash
+		};
+	} catch (error) {
+		functions.logger.error("Failed to process NFT purchase", error);
+		if (error instanceof functions.https.HttpsError) {
+			throw error;
+		}
+		throw new functions.https.HttpsError("internal", "Unable to process NFT purchase.");
+	}
+});
+
+exports.getGascPrice = functions.https.onCall(async () => {
+	try {
+		const [ethUsd, tokensPerEther, totalSold] = await Promise.all([
+			fetchEthPriceUSD(),
+			getTokensPerEther(),
+			sumNftIssuances()
+		]);
+
+		const basePrice = ethUsd / tokensPerEther;
+		const adjustment = computeAdjustment(totalSold, ethUsd);
+		const finalPrice = basePrice + adjustment;
+
+		return {
+			success: true,
+			ethUsd,
+			tokensPerEther,
+			basePrice,
+			adjustment,
+			finalPrice,
+			totalSold
+		};
+	} catch (error) {
+		if (error instanceof functions.https.HttpsError) {
+			throw error;
+		}
+		functions.logger.error("Failed to fetch GASC price", error);
+		throw new functions.https.HttpsError("internal", "Unable to load token price.");
 	}
 });
 
