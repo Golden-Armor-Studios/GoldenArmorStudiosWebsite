@@ -21,13 +21,6 @@
 					</a>
 				</div>
 			</div>
-		<div class="hero-media">
-				<video class="hero-video" controls autoplay loop muted playsinline>
-					<source src="/Color_IQ_Logo.mp4" type="video/mp4">
-					Your browser does not support the video tag.
-				</video>
-				<p class="media-caption">Color IQ Pro — sharpen your perception in a world of shifting gradients.</p>
-			</div>
 		</section>
 
 		<section id="support" class="support card-standard">
@@ -577,27 +570,6 @@ const fetchDonorProfiles = async () => {
 	.primary-button:active,
 	.secondary-button:active {
 		transform: translateY(1px);
-	}
-
-	.hero-media {
-		flex: 1 1 320px;
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-		align-items: center;
-	}
-
-	.hero-video {
-		width: 100%;
-		max-width: 420px;
-		border-radius: 16px;
-		box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
-	}
-
-	.media-caption {
-		margin: 0;
-		color: #d5d7de;
-		font-size: 0.95rem;
 	}
 
 	.pillars {
