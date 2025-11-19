@@ -71,6 +71,9 @@
 				<button class="print-button" type="button" @click="printTransactions" :disabled="isFetchingTransactions || nftTransactions.length === 0">
 					Export history
 				</button>
+				<RouterLink class="cta-button" to="/app/buy-gasc">
+					Purchase GASC
+				</RouterLink>
 			</div>
 			<p class="card-body muted" v-if="isFetchingTransactions">Loading purchase history…</p>
 			<p class="card-body muted" v-else-if="!nftTransactions.length">No GASC purchases recorded yet.</p>
@@ -478,6 +481,24 @@ watch(isAuthenticated, (value) => {
 	.print-button:disabled {
 		opacity: 0.6;
 		cursor: not-allowed;
+	}
+
+	.cta-button {
+		background: rgb(75, 216, 122);
+		color: #0f1419;
+		font-weight: 700;
+		border-radius: 999px;
+		padding: 0.4rem 1rem;
+		text-decoration: none;
+		transition: filter 0.2s ease, transform 0.1s ease;
+	}
+
+	.cta-button:hover {
+		filter: brightness(1.05);
+	}
+
+	.cta-button:active {
+		transform: translateY(1px);
 	}
 
 	.table-scroll {
