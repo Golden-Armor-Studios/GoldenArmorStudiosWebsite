@@ -441,6 +441,7 @@ onBeforeUnmount(() => {
 	}
 
 	.price-ticker {
+		position: relative;
 		display: flex;
 		flex-wrap: wrap;
 		gap: 1rem;
@@ -543,7 +544,9 @@ onBeforeUnmount(() => {
 	}
 
 	.share-button {
-		margin-left: auto;
+		position: absolute;
+		top: 0.4rem;
+		right: 0.4rem;
 		padding: 0.4rem 1rem;
 		border-radius: 999px;
 		border: 1px solid rgba(255, 255, 255, 0.35);
