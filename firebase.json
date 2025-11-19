@@ -47,6 +47,10 @@
         "function": "purchaseNft"
       },
       {
+        "source": "/getGascPrice",
+        "function": "getGascPrice"
+      },
+      {
         "source": "/deleteUserAccount",
         "function": "deleteUserAccount"
       },
