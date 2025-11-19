@@ -5,7 +5,7 @@
 			<source src="/website background - home.mp4" type="video/mp4">
 		</video>
 			<section class="support card-standard">
-				<h1>GASC – New Crypto!</h1>
+				<h1>Support Future Worlds</h1>
 			<p class="support-text">
 				Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy—fuel development today and position for upside before broader marketplace liquidity arrives.
 			</p>
@@ -282,7 +282,7 @@ const mountMeta = () => {
 	if (typeof document === 'undefined') {
 		return
 	}
-	document.title = 'GASC – New Crypto! — Golden Armor Studio'
+	document.title = 'Support Future Worlds — Golden Armor Studio'
 	const shareUrl = typeof window !== 'undefined' ? window.location.href : 'https://goldenarmorstudio.art/buy-gasc'
 	const metaDefinitions = [
 		{ name: 'description', content: 'Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy.' },
@@ -314,7 +314,7 @@ onMounted(async () => {
 	if (analytics && typeof analytics.logEvent === 'function') {
 		analytics.logEvent('page_view', {
 			page_location: typeof window !== 'undefined' ? window.location.href : undefined,
-			page_title: 'GASC – New Crypto!'
+			page_title: 'Support Future Worlds'
 		})
 	}
 	fetchPriceQuote()
