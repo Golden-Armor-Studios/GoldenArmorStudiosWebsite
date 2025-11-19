@@ -464,8 +464,9 @@ watch(isAuthenticated, (value) => {
 	.summary-header {
 		display: flex;
 		justify-content: space-between;
-		align-items: center;
+		align-items: flex-start;
 		gap: 1rem;
+		flex-wrap: wrap;
 	}
 
 	.print-button {
@@ -491,6 +492,9 @@ watch(isAuthenticated, (value) => {
 		padding: 0.4rem 1rem;
 		text-decoration: none;
 		transition: filter 0.2s ease, transform 0.1s ease;
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
 	}
 
 	.cta-button:hover {
