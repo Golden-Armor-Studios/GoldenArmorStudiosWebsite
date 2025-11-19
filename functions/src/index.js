@@ -13,9 +13,18 @@ const storageBucket = admin.storage().bucket(STORAGE_BUCKET);
 
 let stripeInstance = null;
 let onChainIssuer = null;
+const TOKEN_DECIMALS = 18;
+const CONTRACT_ABI = [
+	"function mint(address to, uint256 amount) external",
+	"function tokensPerEther() view returns (uint256)",
+	"function totalSupply() view returns (uint256)",
+	"function balanceOf(address account) view returns (uint256)",
+	"function treasury() view returns (address)"
+];
 
 const PRICING_TOTAL_COINS = Number(functions.config().pricing?.total_coins ?? 1_000_000);
 const PRICING_ADJUSTMENT_K = Number(functions.config().pricing?.adjustment_k ?? 5e-8);
+const PRICING_GAS_UNITS = Number(functions.config().pricing?.gas_units ?? 120_000);
 const ETH_PRICE_ENDPOINT = functions.config().pricing?.eth_api
 	?? "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd";
 
@@ -50,14 +59,20 @@ const getOnChainIssuer = () => {
 	if (!onChainIssuer) {
 		const provider = new ethers.JsonRpcProvider(rpcUrl);
 		const signer = new ethers.Wallet(privateKey, provider);
-		const abi = [
-			"function mint(address to, uint256 amount) external"
-		];
-		const contract = new ethers.Contract(contractAddress, abi, signer);
+		const contract = new ethers.Contract(contractAddress, CONTRACT_ABI, signer);
 		onChainIssuer = { contract, provider };
 	}
 
 	return onChainIssuer;
+};
+
+const formatTokenUnits = (value, decimals = TOKEN_DECIMALS) => {
+	try {
+		return Number(ethers.formatUnits(value, decimals));
+	} catch (error) {
+		functions.logger.warn("Failed to format token units", error);
+		return null;
+	}
 };
 
 const fetchEthPriceUSD = async () => {
@@ -84,8 +99,8 @@ const fetchEthPriceUSD = async () => {
 const getTokensPerEther = async () => {
 	try {
 		const { contract } = getOnChainIssuer();
-		const value = await contract.tokensPerEther();
-		const parsed = Number(value);
+		const raw = await contract.tokensPerEther();
+		const parsed = formatTokenUnits(raw);
 		if (Number.isFinite(parsed) && parsed > 0) {
 			return parsed;
 		}
@@ -94,6 +109,18 @@ const getTokensPerEther = async () => {
 		functions.logger.warn("Falling back to default tokensPerEther", error);
 		return 1000;
 	}
+};
+
+const getInvestorOwnedTokens = async () => {
+	const { contract } = getOnChainIssuer();
+	const treasuryAddress = await contract.treasury();
+	const [totalSupplyRaw, treasuryBalanceRaw] = await Promise.all([
+		contract.totalSupply(),
+		contract.balanceOf(treasuryAddress)
+	]);
+	const investorRaw = totalSupplyRaw - treasuryBalanceRaw;
+	const parsed = formatTokenUnits(investorRaw);
+	return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
 };
 
 const sumNftIssuances = async () => {
@@ -114,6 +141,34 @@ const computeAdjustment = (sold, ethPrice) => {
 		return 0;
 	}
 	return ratio / (PRICING_ADJUSTMENT_K * ethPrice);
+};
+
+const estimateGasFeeUSD = async (ethUsd, tokenAmount = 1) => {
+	if (!Number.isFinite(ethUsd) || ethUsd <= 0) {
+		return { gasFeeUsd: 0, gasFeeEth: 0, gasPriceGwei: 0 };
+	}
+	const baseUnits = Math.max(Number.isFinite(PRICING_GAS_UNITS) ? PRICING_GAS_UNITS : 120_000, 21_000);
+	const perTokenUnits = Math.max(Number(functions.config().pricing?.gas_units_per_token ?? 15_000), 1_000);
+	const gasUnits = baseUnits + perTokenUnits * Math.max(Math.floor(tokenAmount), 0);
+	try {
+		const { provider } = getOnChainIssuer();
+		const feeData = await provider.getFeeData();
+		const gasPriceWei = feeData.maxFeePerGas ?? feeData.gasPrice;
+		if (!gasPriceWei) {
+			throw new Error("Gas price unavailable");
+		}
+		const gasPriceBigInt = BigInt(gasPriceWei);
+		const totalWei = gasPriceBigInt * BigInt(gasUnits);
+		const gasFeeEth = Number(ethers.formatEther(totalWei));
+		return {
+			gasFeeUsd: gasFeeEth * ethUsd,
+			gasFeeEth,
+			gasPriceGwei: Number(ethers.formatUnits(gasPriceBigInt, "gwei"))
+		};
+	} catch (error) {
+		functions.logger.warn("Failed to estimate gas fee", error);
+		return { gasFeeUsd: 0, gasFeeEth: 0, gasPriceGwei: 0 };
+	}
 };
 
 const allowedGroups = ["member", "subscriber", "donor", "admin", "developer"];
@@ -720,17 +775,22 @@ exports.purchaseNft = functions.https.onCall(async (data, context) => {
 	}
 });
 
-exports.getGascPrice = functions.https.onCall(async () => {
+exports.getGascPrice = functions.https.onCall(async (data = {}) => {
 	try {
-		const [ethUsd, tokensPerEther, totalSold] = await Promise.all([
+		const tokenAmount = Number((typeof data === "object" && data !== null ? data.tokenAmount : undefined) ?? 1);
+		const [ethUsd, tokensPerEther, investorOwnedTokens] = await Promise.all([
 			fetchEthPriceUSD(),
 			getTokensPerEther(),
-			sumNftIssuances()
+			getInvestorOwnedTokens().catch(async (error) => {
+				functions.logger.warn("Falling back to Firestore totals for investor holdings", error);
+				return sumNftIssuances();
+			})
 		]);
 
 		const basePrice = ethUsd / tokensPerEther;
-		const adjustment = computeAdjustment(totalSold, ethUsd);
+		const adjustment = computeAdjustment(investorOwnedTokens, ethUsd);
 		const finalPrice = basePrice + adjustment;
+		const gasEstimate = await estimateGasFeeUSD(ethUsd, tokenAmount);
 
 		return {
 			success: true,
@@ -739,7 +799,8 @@ exports.getGascPrice = functions.https.onCall(async () => {
 			basePrice,
 			adjustment,
 			finalPrice,
-			totalSold
+			totalSold: investorOwnedTokens,
+			gasFeeUsd: gasEstimate.gasFeeUsd
 		};
 	} catch (error) {
 		if (error instanceof functions.https.HttpsError) {
@@ -1110,3 +1171,4 @@ exports.getNewsArticle = newsHandlers.getNewsArticle;
 exports.getPublishedNewsArticle = newsHandlers.getPublishedNewsArticle;
 exports.deleteNewsArticle = newsHandlers.deleteNewsArticle;
 exports.renderNewsShare = newsHandlers.renderNewsShare;
+exports.renderBuyGascShare = newsHandlers.renderBuyGascShare;

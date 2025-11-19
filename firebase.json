@@ -119,6 +119,10 @@
         "function": "renderNewsShare"
       },
       {
+        "source": "/buy-gasc",
+        "function": "renderBuyGascShare"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

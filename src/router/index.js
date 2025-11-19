@@ -5,6 +5,7 @@ import NewsListView from '../views/NewsListView.vue'
 import NewsPublicListView from '../views/NewsPublicListView.vue'
 import NewsArticlePreview from '../views/NewsArticlePreview.vue'
 import HomeView from '../views/HomeView.vue'
+import BuyGASCView from '../views/BuyGASCView.vue'
 import LoginView from '../views/LoginView.vue'
 import RepoOverviewView from '../views/RepoOverviewView.vue'
 import ColorIqOverviewView from '../views/ColorIqOverviewView.vue'
@@ -20,6 +21,12 @@ const routes = [
     path: '/',
     name: 'Home',
     component: HomeView
+  },
+  {
+    path: '/app/buy-gasc',
+    alias: ['/buy-gasc'],
+    name: 'BuyGASC',
+    component: BuyGASCView
   },
   {
     path: '/login',

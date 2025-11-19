@@ -28,6 +28,7 @@
 						<img class="home-icon" src="/golden-armor.png" alt="Golden Armor Studio crest">
 						<span>Home</span>
 					</RouterLink>
+					<RouterLink class="nav-link" to="/app/buy-gasc" @click="closeNav" @mouseenter="handleNavHover" @focus="handleNavHover">Buy GASC</RouterLink>
                     <RouterLink class="nav-link" to="/news" @click="closeNav" @mouseenter="handleNavHover" @focus="handleNavHover">News</RouterLink>
                     <RouterLink v-if="isAuthenticated" class="nav-link" to="/dashboard" @click="closeNav" @mouseenter="handleNavHover" @focus="handleNavHover">Dashboard</RouterLink>
                     <RouterLink v-if="!isAuthenticated" class="nav-link" to="/login" @click="closeNav" @mouseenter="handleNavHover" @focus="handleNavHover">Login</RouterLink>

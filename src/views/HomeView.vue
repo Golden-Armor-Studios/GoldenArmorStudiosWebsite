@@ -23,25 +23,22 @@
 			</div>
 		</section>
 
-		<section id="support" class="support card-standard">
-			<h2>Support Future Worlds</h2>
-			<div class="price-ticker" :class="priceTrend">
-				<div class="ticker-card">
-					<p class="ticker-label">ETH (USD)</p>
-					<p class="ticker-value">{{ ethPriceDisplay }}</p>
-				</div>
-				<div class="ticker-card">
-					<p class="ticker-label">GASC (per token)</p>
-					<p class="ticker-value">{{ gascPriceDisplay }}</p>
-				</div>
-				<div class="ticker-card">
-					<p class="ticker-label">Adjustment</p>
-					<p class="ticker-value">{{ adjustmentFeeDisplay }}</p>
-				</div>
-			</div>
-			<p class="support-text">
-				Player-backed development keeps experimental ideas alive. Purchase GASC now to fund ambitious prototypes and receive NFTs deposited to your wallet.
+			<section id="support" class="support card-standard">
+				<h2>Support Future Worlds</h2>
+				<p class="support-text">
+					Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy—fuel development today and position for upside before broader marketplace liquidity arrives.
 			</p>
+		<div class="price-ticker" :class="priceTrend">
+			<div class="ticker-card">
+				<p class="ticker-label">ETH (USD)</p>
+				<p class="ticker-value price-emphasis">{{ ethPriceDisplay }}</p>
+			</div>
+			<div class="ticker-card">
+				<p class="ticker-label">GASC (per token)</p>
+				<p class="ticker-value price-emphasis">{{ gascPriceDisplay }}</p>
+			</div>
+		</div>
+
 			<form class="donation-form" @submit.prevent="handlePurchase">
 				<div class="field-row">
 					<label for="gascAmount">GASC amount</label>
@@ -51,14 +48,15 @@
 						min="1"
 						step="1"
 						v-model.number="gascAmount"
+						@input="refreshQuoteForAmount"
 						:disabled="isProcessing"
 					>
 				</div>
 
-				<div class="field-row">
-					<label>Estimated total</label>
-					<p class="purchase-total">{{ gascUsdDisplay }}</p>
-				</div>
+			<div class="field-row estimate-row" :class="['estimate-row', totalTrend]">
+				<label>Estimated total (incl. gas)</label>
+				<p class="purchase-total price-emphasis">{{ gascUsdDisplay }}</p>
+			</div>
 
 				<div class="field-row">
 					<label for="depositAddress">Deposit address</label>
@@ -72,9 +70,6 @@
 					>
 				</div>
 
-				<div class="fee-note">
-					<p>Gas fee estimate: {{ gasFeeDisplay }} (included in total)</p>
-				</div>
 
 				<div class="field-row">
 					<label>Card details</label>
@@ -206,6 +201,7 @@
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useStore } from 'vuex'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/firebase'
@@ -215,9 +211,12 @@ import { loadStripe } from '@stripe/stripe-js'
 const publishableKey = 'pk_live_51SJccOKYzIVp9MDU493vDCMnQbSGmnrhPAa6YXR0PzxoqRs5YX8AWrv8zvAmBHfKBc7tTT6MQKbNDZAIQcA8bgV900hbt7WfPc'
 
 const store = useStore()
+const router = useRouter()
+const route = useRoute()
 const toast = useToast()
 const gascQuote = ref({ ethUsd: null, tokensPerEther: 1000, basePrice: null, adjustment: 0, finalPrice: null, totalSold: 0, gasFeeUsd: 0 })
 const lastFinalPrice = ref(null)
+const lastUsdTotal = ref(null)
 const priceIntervalId = ref(null)
 
 const gascAmount = ref(100)
@@ -244,14 +243,12 @@ const gascUsdValue = computed(() => {
 	if (!Number.isFinite(parsed) || parsed <= 0) {
 		return null
 	}
-	return gascQuote.value.finalPrice * parsed + (gascQuote.value.gasFeeUsd || 0)
+	return gascQuote.value.finalPrice * parsed + (Number(gascQuote.value.gasFeeUsd) || 0)
 })
 
-const ethPriceDisplay = computed(() => gascQuote.value.ethUsd == null ? '—' : `${gascQuote.value.ethUsd.toFixed(2)}`)
-const gascPriceDisplay = computed(() => gascQuote.value.finalPrice == null ? '—' : `${gascQuote.value.finalPrice.toFixed(4)}`)
-const adjustmentFeeDisplay = computed(() => gascQuote.value.adjustment == null ? '$0.0000' : `${gascQuote.value.adjustment.toFixed(4)}`)
-const gascUsdDisplay = computed(() => gascUsdValue.value == null ? '$0.00' : `${gascUsdValue.value.toFixed(2)}`)
-const gasFeeDisplay = computed(() => !gascQuote.value.gasFeeUsd ? '$0.00' : `${gascQuote.value.gasFeeUsd.toFixed(2)}`)
+const ethPriceDisplay = computed(() => gascQuote.value.ethUsd == null ? '—' : `$${gascQuote.value.ethUsd.toFixed(2)}`)
+const gascPriceDisplay = computed(() => gascQuote.value.finalPrice == null ? '—' : `$${gascQuote.value.finalPrice.toFixed(4)}`)
+const gascUsdDisplay = computed(() => gascUsdValue.value == null ? '$0.00' : `$${gascUsdValue.value.toFixed(2)}`)
 const priceTrend = computed(() => {
 	if (gascQuote.value.finalPrice == null || lastFinalPrice.value == null) {
 		return 'neutral'
@@ -265,6 +262,19 @@ const priceTrend = computed(() => {
 	return 'neutral'
 })
 
+const totalTrend = computed(() => {
+	if (gascUsdValue.value == null || lastUsdTotal.value == null) {
+		return 'neutral'
+	}
+	if (gascUsdValue.value > lastUsdTotal.value) {
+		return 'up'
+	}
+	if (gascUsdValue.value < lastUsdTotal.value) {
+		return 'down'
+	}
+	return 'neutral'
+})
+
 const topDonors = computed(() => donorsSorted.value.slice(0, 3))
 const remainingDonors = computed(() => donorsSorted.value.slice(3))
 
@@ -272,28 +282,33 @@ const isPurchaseDisabled = computed(() => {
 	if (isProcessing.value || !cardReady.value) {
 		return true
 	}
-	if (!isAuthenticated.value) {
-		return true
-	}
 	return !gascUsdValue.value || !depositAddress.value.trim()
 })
 
-const fetchPriceQuote = async () => {
+const fetchPriceQuote = async (overrideAmount = null) => {
 	try {
-		const callable = httpsCallable(functions, 'getGascPrice')
-		const { data } = await callable()
-		if (data?.success) {
-			lastFinalPrice.value = gascQuote.value.finalPrice
-			gascQuote.value = {
-				ethUsd: Number(data.ethUsd) || null,
-				tokensPerEther: Number(data.tokensPerEther) || 1000,
-				basePrice: Number(data.basePrice) || null,
-				adjustment: Number(data.adjustment) || 0,
-				finalPrice: Number(data.finalPrice) || null,
-				totalSold: Number(data.totalSold) || 0,
-				gasFeeUsd: Number(data.gasFeeUsd) || 0
-			}
+	const callable = httpsCallable(functions, 'getGascPrice')
+	const amount = Number(overrideAmount ?? gascAmount.value ?? 1)
+	const { data } = await callable({ tokenAmount: amount })
+	if (data?.success) {
+		lastFinalPrice.value = gascQuote.value.finalPrice ?? lastFinalPrice.value
+		lastUsdTotal.value = gascUsdValue.value ?? lastUsdTotal.value
+		gascQuote.value = {
+			ethUsd: Number(data.ethUsd) || null,
+			tokensPerEther: Number(data.tokensPerEther) || 1000,
+			basePrice: Number(data.basePrice) || null,
+			adjustment: Number(data.adjustment) || 0,
+			finalPrice: Number(data.finalPrice) || null,
+			totalSold: Number(data.totalSold) || 0,
+			gasFeeUsd: Number(data.gasFeeUsd) || 0
 		}
+		if (lastFinalPrice.value == null && gascQuote.value.finalPrice != null) {
+			lastFinalPrice.value = gascQuote.value.finalPrice
+		}
+		if (lastUsdTotal.value == null && gascUsdValue.value != null) {
+			lastUsdTotal.value = gascUsdValue.value
+		}
+	}
 	} catch (error) {
 		console.error('Failed to load GASC price', error)
 	}
@@ -341,10 +356,19 @@ const resetPurchaseMessage = () => {
 	purchaseError.value = false
 }
 
+const refreshQuoteForAmount = () => {
+	if (!isProcessing.value) {
+		fetchPriceQuote()
+	}
+}
+
 const handlePurchase = async () => {
 	resetPurchaseMessage()
 	if (!isAuthenticated.value) {
-		toast.info('Please sign in with GitHub before purchasing.')
+		router.push({
+			path: '/login',
+			query: { redirect: route.fullPath }
+		})
 		return
 	}
 	if (!gascUsdValue.value || gascUsdValue.value <= 0) {
@@ -825,22 +849,81 @@ const fetchDonorProfiles = async () => {
 		margin: 0 auto;
 	}
 
-	.support-text {
-		margin: 0;
-		color: #d5d7de;
+		.support-text {
+			margin: 0;
+			color: #d5d7de;
+			max-width: 360px;
+			text-align: center;
+		}
+
+		.price-ticker {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 1.5rem;
+			justify-content: center;
+			width: 100%;
+			margin-top: 0.75rem;
+		}
+
+		.price-emphasis {
+			font-size: 1.6rem;
+			font-weight: 800;
+		}
+
+		.ticker-card {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			gap: 0.2rem;
+			min-width: 160px;
+		}
+
+		.ticker-label {
+			font-size: 0.85rem;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+			color: #9aa5b6;
+			margin: 0;
+		}
+
+		.ticker-value {
+			margin: 0;
+		}
+
+		.price-ticker.up .ticker-value {
+			color: #4bd87a;
+		}
+
+	.price-ticker.down .ticker-value {
+		color: #ff6b6b;
 	}
 
-	.donation-form {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-		width: 100%;
-	}
+		.donation-form {
+			display: flex;
+			flex-direction: column;
+			gap: 1rem;
+			width: 100%;
+			max-width: 360px;
+			margin: 0 auto;
+		}
 
 	.field-row {
 		display: flex;
 		flex-direction: column;
 		gap: 0.4rem;
+	}
+
+	.estimate-row .purchase-total {
+		font-size: 1.5rem;
+		font-weight: 800;
+	}
+
+	.estimate-row.up .purchase-total {
+		color: #4bd87a;
+	}
+
+	.estimate-row.down .purchase-total {
+		color: #ff6b6b;
 	}
 
 	label {

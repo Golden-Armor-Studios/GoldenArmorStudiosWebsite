@@ -934,6 +934,34 @@ const renderNewsShare = functions.https.onRequest(async (req, res) => {
 	}
 });
 
+const renderBuyGascShare = functions.https.onRequest(async (_req, res) => {
+	try {
+		const responseHtml = buildShareHtml({
+			title: `${SITE_NAME} | GASC - New Crypto!`,
+			description: "Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy.",
+			image: "https://goldenarmorstudio.art/Buy-GASC-COver.png",
+			url: `${DEFAULT_ORIGIN}/buy-gasc`,
+			redirectUrl: `${DEFAULT_ORIGIN}/app/buy-gasc`,
+			status: "public",
+			noindex: false
+		});
+
+		res.set("Cache-Control", "public, max-age=300, s-maxage=600");
+		res.status(200).send(responseHtml);
+	} catch (error) {
+		functions.logger.error("renderBuyGascShare failed", error);
+		res.status(500).send(buildShareHtml({
+			title: `${SITE_NAME} | GASC - New Crypto!`,
+			description: "We ran into an issue while preparing the checkout page.",
+			image: DEFAULT_IMAGE,
+			url: `${DEFAULT_ORIGIN}/buy-gasc`,
+			redirectUrl: `${DEFAULT_ORIGIN}/app/buy-gasc`,
+			status: "error",
+			noindex: true
+		}));
+	}
+});
+
 module.exports = {
 	listNewsArticles,
 	listPublishedNews,
@@ -948,5 +976,6 @@ module.exports = {
 	getPublishedNewsArticle,
 	deleteNewsArticle,
 	ensureDeveloper,
-	renderNewsShare
+	renderNewsShare,
+	renderBuyGascShare
 };
