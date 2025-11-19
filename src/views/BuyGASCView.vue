@@ -211,8 +211,7 @@ const sharePurchase = async () => {
 			toast.info('Share this link: https://goldenarmorstudio.art/buy-gasc')
 		}
 	} catch (error) {
-		console.error('Share failed', error)
-		toast.error('Unable to share link right now.')
+		console.error('Share cancelled or unavailable', error)
 	}
 }
 
