@@ -430,13 +430,12 @@ onBeforeUnmount(() => {
 	z-index: 1;
 }
 
-.support-header {
-	display: flex;
-	width: 100%;
-	align-items: center;
-	justify-content: space-between;
-	gap: 0.75rem;
-}
+	.support-header {
+		width: 100%;
+		gap: 0.75rem;
+		text-align: center;
+		margin-top: 20px;
+	}
 
 .support-header h1 {
 	margin: 0;
