@@ -68,12 +68,14 @@
 		<div class="card card-standard transaction-ledger">
 			<div class="summary-header">
 				<h2 class="card-title">GASC Transactions</h2>
-				<button class="print-button" type="button" @click="printTransactions" :disabled="isFetchingTransactions || nftTransactions.length === 0">
-					Export history
-				</button>
-				<RouterLink class="cta-button" to="/app/buy-gasc">
-					Purchase GASC
-				</RouterLink>
+				<div class="summary-actions">
+					<button class="print-button" type="button" @click="printTransactions" :disabled="isFetchingTransactions || nftTransactions.length === 0">
+						Export history
+					</button>
+					<RouterLink class="cta-button" to="/app/buy-gasc">
+						Purchase GASC
+					</RouterLink>
+				</div>
 			</div>
 			<p class="card-body muted" v-if="isFetchingTransactions">Loading purchase history…</p>
 			<p class="card-body muted" v-else-if="!nftTransactions.length">No GASC purchases recorded yet.</p>
@@ -466,6 +468,14 @@ watch(isAuthenticated, (value) => {
 		justify-content: space-between;
 		align-items: flex-start;
 		gap: 1rem;
+		flex-wrap: wrap;
+	}
+
+	.summary-actions {
+		display: flex;
+		gap: 0.75rem;
+		justify-content: flex-end;
+		align-items: center;
 		flex-wrap: wrap;
 	}
 
