@@ -5,7 +5,9 @@
 			<source src="/website background - home.mp4" type="video/mp4">
 		</video>
 			<section class="support card-standard">
-				<h1>Support Future Worlds</h1>
+				<div class="support-header">
+					<h1>Support Future Worlds</h1>
+			</div>
 			<p class="support-text">
 				Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy—fuel development today and position for upside before broader marketplace liquidity arrives.
 			</p>
@@ -18,9 +20,9 @@
 					<p class="ticker-label">GASC (per token)</p>
 					<p class="ticker-value price-emphasis">{{ gascPriceDisplay }}</p>
 				</div>
-				<button type="button" class="share-button" @click="sharePurchase" aria-label="Share purchase link">
-					Share
-				</button>
+           <button type="button" class="share-button" @click="sharePurchase" aria-label="Share purchase link">
+             Share
+           </button>
 			</div>
 			<form class="donation-form" @submit.prevent="handlePurchase">
 				<div class="field-row">
@@ -411,28 +413,28 @@ onBeforeUnmount(() => {
 		z-index: -2;
 	}
 
-	.support {
-		display: flex;
-		flex-direction: column;
-		gap: 1.5rem;
-		color: #d5d7de;
-		border: 1px solid rgba(255, 255, 255, 0.12);
-		backdrop-filter: blur(4px);
-		padding: 2rem;
-		border-radius: 20px;
-		align-items: center;
-		text-align: center;
-		max-width: 520px;
-		width: 100%;
-		position: relative;
-		z-index: 1;
-	}
+.support {
+	display: flex;
+	flex-direction: column;
+	gap: 1.5rem;
+	color: #d5d7de;
+	border: 1px solid rgba(255, 255, 255, 0.12);
+	backdrop-filter: blur(4px);
+	padding: 2rem;
+	border-radius: 20px;
+	align-items: center;
+	text-align: center;
+	max-width: 520px;
+	width: 100%;
+	position: relative;
+	z-index: 1;
+}
 
-	.support h1 {
-		margin: 0;
-		font-size: 1.9rem;
-		color: #f6f7f9;
-	}
+.support h1 {
+	margin: 0;
+	font-size: 1.9rem;
+	color: #f6f7f9;
+}
 
 	.support-text {
 		margin: 0;
@@ -545,8 +547,8 @@ onBeforeUnmount(() => {
 
 	.share-button {
 		position: absolute;
-		top: 0.4rem;
-		right: 0.4rem;
+		top: 1rem;
+		right: 1rem;
 		padding: 0.4rem 1rem;
 		border-radius: 999px;
 		border: 1px solid rgba(255, 255, 255, 0.35);
