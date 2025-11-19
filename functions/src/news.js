@@ -938,7 +938,7 @@ const renderBuyGascShare = functions.https.onRequest(async (_req, res) => {
 	try {
 		const responseHtml = buildShareHtml({
 			title: `${SITE_NAME} | GASC - New Crypto!`,
-			description: "Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy.",
+			description: "Support Future Worlds by purchasing GASC and funding Golden Armor Studio’s next generation of prototypes.",
 			image: "https://goldenarmorstudio.art/Buy-GASC-COver.png",
 			url: `${DEFAULT_ORIGIN}/buy-gasc`,
 			redirectUrl: `${DEFAULT_ORIGIN}/app/buy-gasc`,
@@ -952,7 +952,7 @@ const renderBuyGascShare = functions.https.onRequest(async (_req, res) => {
 		functions.logger.error("renderBuyGascShare failed", error);
 		res.status(500).send(buildShareHtml({
 			title: `${SITE_NAME} | GASC - New Crypto!`,
-			description: "We ran into an issue while preparing the checkout page.",
+			description: "Support Future Worlds by purchasing GASC and funding Golden Armor Studio’s next generation of prototypes.",
 			image: DEFAULT_IMAGE,
 			url: `${DEFAULT_ORIGIN}/buy-gasc`,
 			redirectUrl: `${DEFAULT_ORIGIN}/app/buy-gasc`,

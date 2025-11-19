@@ -285,15 +285,15 @@ const mountMeta = () => {
 	document.title = 'Support Future Worlds — Golden Armor Studio'
 	const shareUrl = typeof window !== 'undefined' ? window.location.href : 'https://goldenarmorstudio.art/buy-gasc'
 	const metaDefinitions = [
-		{ name: 'description', content: 'Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy.' },
+		{ name: 'description', content: 'Support Future Worlds by purchasing GASC and funding Golden Armor Studio’s next generation of prototypes.' },
 		{ property: 'og:title', content: 'GASC - New Crypto!' },
-		{ property: 'og:description', content: 'Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy.' },
+		{ property: 'og:description', content: 'Support Future Worlds by purchasing GASC and funding Golden Armor Studio’s next generation of prototypes.' },
 		{ property: 'og:url', content: shareUrl },
 		{ property: 'og:type', content: 'website' },
 		{ property: 'og:image', content: 'https://goldenarmorstudio.art/Buy-GASC-COver.png' },
 		{ name: 'twitter:card', content: 'summary_large_image' },
 		{ name: 'twitter:title', content: 'GASC - New Crypto!' },
-		{ name: 'twitter:description', content: 'Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy.' },
+		{ name: 'twitter:description', content: 'Support Future Worlds by purchasing GASC and funding Golden Armor Studio’s next generation of prototypes.' },
 		{ name: 'twitter:image', content: 'https://goldenarmorstudio.art/Buy-GASC-COver.png' }
 	]
 	metaDefinitions.forEach((definition) => {
