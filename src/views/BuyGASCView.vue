@@ -554,6 +554,10 @@ onBeforeUnmount(() => {
 	}
 
 	.share-button {
+		position: absolute;
+		right: 0;
+		top: 0;
+		margin: 15px;
 		padding: 0.4rem 1rem;
 		border-radius: 999px;
 		border: 1px solid rgba(255, 255, 255, 0.35);
