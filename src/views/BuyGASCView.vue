@@ -7,10 +7,13 @@
 			<section class="support card-standard">
 				<div class="support-header">
 					<h1>Support Future Worlds</h1>
-			</div>
-			<p class="support-text">
-				Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy—fuel development today and position for upside before broader marketplace liquidity arrives.
-			</p>
+					<button type="button" class="share-button" @click="sharePurchase" aria-label="Share purchase link">
+						Share
+					</button>
+				</div>
+				<p class="support-text">
+					Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy—fuel development today and position for upside before broader marketplace liquidity arrives.
+				</p>
 			<div class="price-ticker" :class="priceTrend">
 				<div class="ticker-card">
 					<p class="ticker-label">ETH (USD)</p>
@@ -20,9 +23,6 @@
 					<p class="ticker-label">GASC (per token)</p>
 					<p class="ticker-value price-emphasis">{{ gascPriceDisplay }}</p>
 				</div>
-           <button type="button" class="share-button" @click="sharePurchase" aria-label="Share purchase link">
-             Share
-           </button>
 			</div>
 			<form class="donation-form" @submit.prevent="handlePurchase">
 				<div class="field-row">
@@ -430,7 +430,15 @@ onBeforeUnmount(() => {
 	z-index: 1;
 }
 
-.support h1 {
+.support-header {
+	display: flex;
+	width: 100%;
+	align-items: center;
+	justify-content: space-between;
+	gap: 0.75rem;
+}
+
+.support-header h1 {
 	margin: 0;
 	font-size: 1.9rem;
 	color: #f6f7f9;
@@ -546,9 +554,6 @@ onBeforeUnmount(() => {
 	}
 
 	.share-button {
-		position: absolute;
-		top: 1rem;
-		right: 1rem;
 		padding: 0.4rem 1rem;
 		border-radius: 999px;
 		border: 1px solid rgba(255, 255, 255, 0.35);
@@ -556,6 +561,7 @@ onBeforeUnmount(() => {
 		color: #f6f7f9;
 		font-weight: 600;
 		cursor: pointer;
+		white-space: nowrap;
 	}
 
 	@media (max-width: 600px) {
