@@ -40,6 +40,7 @@
 				<label>
 					<span>ETH in GASC pool</span>
 					<input type="number" min="1" step="1" v-model.number="targetEthReserve">
+					<small class="usd-cost">≈ ${{ poolEthUsdCost.toLocaleString(undefined, { maximumFractionDigits: 2 }) }}</small>
 				</label>
 				<label>
 					<span>Monthly buyback (USD)</span>
@@ -146,6 +147,14 @@ const formatNumber = (value) => {
 	}
 	return Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })
 }
+
+const poolEthUsdCost = computed(() => {
+	const price = Number(ethPriceUsd.value)
+	if (!Number.isFinite(price) || price <= 0) {
+		return 0
+	}
+	return sanitizedEthReserve.value * price
+})
 
 const priceTrendClass = computed(() => {
 	if (priceTrend.value === 'up') {
@@ -261,6 +270,11 @@ onBeforeUnmount(() => {
 	border-radius: 10px;
 	padding: 0.65rem 0.75rem;
 	color: #f6f7f9;
+}
+
+.usd-cost {
+	font-size: 0.85rem;
+	color: #9aa5b6;
 }
 
 .note {
