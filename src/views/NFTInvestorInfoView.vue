@@ -310,6 +310,10 @@ onBeforeUnmount(() => {
 	color: #ff6b6b;
 }
 
+.price-indicator.trend-neutral {
+	color: #4bd87a;
+}
+
 .methodology ol {
 	margin: 0.5rem 0 0;
 	padding-left: 1.25rem;
