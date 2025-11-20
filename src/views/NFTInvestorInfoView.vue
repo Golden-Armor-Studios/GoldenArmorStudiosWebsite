@@ -16,14 +16,14 @@
 		<section class="card-standard live-quote" v-if="lastFetchedQuote">
 			<div class="quote-header">
 				<h2>Live Market Reference</h2>
-				<button class="refresh-button" @click="fetchQuote" :disabled="isFetchingQuote">
-					<span v-if="isFetchingQuote">Updating…</span>
-					<span v-else>Refresh</span>
-				</button>
+				<span class="auto-refresh-note">Auto-refresh every 60 seconds</span>
 			</div>
 			<p class="note">
-				Current `getGascPrice` quote: <strong>${{ (lastFetchedQuote.finalPrice ?? 0).toFixed(4) }}</strong> per GASC
-				(ETH ${ lastFetchedQuote.ethUsd?.toFixed ? lastFetchedQuote.ethUsd.toFixed(2) : '—' } USD).
+				Current `getGascPrice` quote:
+				<span :class="['price-indicator', priceTrendClass]">
+					${{ (lastFetchedQuote.finalPrice ?? 0).toFixed(4) }}
+				</span>
+				per GASC (ETH ${{ lastFetchedQuote.ethUsd?.toFixed ? lastFetchedQuote.ethUsd.toFixed(2) : '—' }}).
 				Use the calculator below to model deeper liquidity or larger buybacks.
 			</p>
 		</section>
@@ -107,6 +107,7 @@ const ethPriceTouched = ref(false)
 const targetEthReserve = ref(BASE_ETH)
 const buybackUsd = ref(45_000)
 const lastFetchedQuote = ref(null)
+const priceTrend = ref('neutral')
 const isFetchingQuote = ref(false)
 let quoteIntervalId = null
 
@@ -151,6 +152,16 @@ const formatNumber = (value) => {
 	return Number(value).toLocaleString(undefined, { maximumFractionDigits: 0 })
 }
 
+const priceTrendClass = computed(() => {
+	if (priceTrend.value === 'up') {
+		return 'trend-up'
+	}
+	if (priceTrend.value === 'down') {
+		return 'trend-down'
+	}
+	return 'trend-neutral'
+})
+
 const fetchQuote = async () => {
 	if (isFetchingQuote.value) {
 		return
@@ -163,6 +174,18 @@ const fetchQuote = async () => {
 			const parsed = {
 				finalPrice: Number(data.finalPrice) || 0,
 				ethUsd: Number(data.ethUsd) || null
+			}
+			const previous = lastFetchedQuote.value?.ethUsd
+			if (Number.isFinite(parsed.ethUsd) && Number.isFinite(previous)) {
+				if (parsed.ethUsd > previous) {
+					priceTrend.value = 'up'
+				} else if (parsed.ethUsd < previous) {
+					priceTrend.value = 'down'
+				} else {
+					priceTrend.value = 'neutral'
+				}
+			} else {
+				priceTrend.value = 'neutral'
 			}
 			lastFetchedQuote.value = parsed
 			if (!ethPriceTouched.value && Number.isFinite(parsed.ethUsd)) {
@@ -213,19 +236,9 @@ onBeforeUnmount(() => {
 	gap: 1rem;
 }
 
-.refresh-button {
-	padding: 0.4rem 1rem;
-	border-radius: 999px;
-	border: 1px solid rgba(255, 255, 255, 0.35);
-	background: transparent;
-	color: #f6f7f9;
-	font-weight: 600;
-	cursor: pointer;
-}
-
-.refresh-button:disabled {
-	opacity: 0.6;
-	cursor: not-allowed;
+.auto-refresh-note {
+	font-size: 0.9rem;
+	color: #9aa5b6;
 }
 
 .intro ul {
@@ -287,6 +300,18 @@ onBeforeUnmount(() => {
 }
 
 .down {
+	color: #ff6b6b;
+}
+
+.price-indicator {
+	font-weight: 700;
+}
+
+.price-indicator.trend-up {
+	color: #4bd87a;
+}
+
+.price-indicator.trend-down {
 	color: #ff6b6b;
 }
 
