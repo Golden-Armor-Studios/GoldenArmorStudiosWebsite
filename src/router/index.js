@@ -14,6 +14,7 @@ import JoinTeamView from '../views/JoinTeamView.vue'
 import DevsView from '../views/DevsView.vue'
 import NotFoundView from '../views/NotFoundView.vue'
 import DashboardView from '../views/DashboardView.vue'
+import NFTInvestorInfoView from '../views/NFTInvestorInfoView.vue'
 import store from '../store'
 
 const routes = [
@@ -125,6 +126,11 @@ const routes = [
     meta: {
       publicNews: true
     }
+  },
+  {
+    path: '/nft-investor-info',
+    name: 'NFTInvestorInfo',
+    component: NFTInvestorInfoView
   },
   {
     path: '/app/news/:id',
