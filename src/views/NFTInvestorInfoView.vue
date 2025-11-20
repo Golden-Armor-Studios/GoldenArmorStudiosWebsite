@@ -102,7 +102,7 @@ const ethPriceUsd = ref(3000)
 const targetEthReserve = ref(BASE_ETH)
 const buybackUsd = ref(45_000)
 const lastFetchedQuote = ref(null)
-const priceTrend = ref('up')
+const priceTrend = ref('trend-up')
 const isFetchingQuote = ref(false)
 let quoteIntervalId = null
 
@@ -175,12 +175,12 @@ const fetchQuote = async () => {
 				if (parsed.ethUsd > previous) {
 					priceTrend.value = 'up'
 				} else if (parsed.ethUsd < previous) {
-					priceTrend.value = 'down'
+					priceTrend.value = 'trend-down'
 				} else {
-					priceTrend.value = 'neutral'
+					priceTrend.value = 'trend-neutral'
 				}
 			} else {
-				priceTrend.value = 'neutral'
+				priceTrend.value = 'trend-neutral'
 			}
 			lastFetchedQuote.value = parsed
 			if (Number.isFinite(parsed.ethUsd)) {
