@@ -3,6 +3,7 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 const { ethers } = require("ethers");
+const nodemailer = require("nodemailer");
 const crypto = require("node:crypto");
 
 admin.initializeApp();
@@ -14,6 +15,7 @@ const storageBucket = admin.storage().bucket(STORAGE_BUCKET);
 let stripeInstance = null;
 let onChainIssuer = null;
 let chainlinkFeedContract = null;
+let mailTransporter = null;
 const TOKEN_DECIMALS = 18;
 const CONTRACT_ABI = [
 	"function mint(address to, uint256 amount) external",
@@ -49,6 +51,38 @@ const getStripeClient = () => {
 	}
 
 	return stripeInstance;
+};
+
+const getMailTransporter = () => {
+ const smtpHost = functions.config().email?.host || "smtp.office365.com";
+ const smtpPort = Number(functions.config().email?.port ?? 587);
+ const smtpUser = functions.config().email?.user;
+ const smtpPass = functions.config().email?.pass;
+ const fromAddress = functions.config().email?.from;
+ if (!smtpUser || !smtpPass) {
+  throw new functions.https.HttpsError(
+   "failed-precondition",
+   "Email credentials are not configured. Set functions config `email.user` and `email.pass`."
+  );
+ }
+ if (!fromAddress) {
+  throw new functions.https.HttpsError(
+   "failed-precondition",
+   "Email sender address is not configured. Set functions config `email.from`."
+  );
+ }
+ if (!mailTransporter) {
+  mailTransporter = nodemailer.createTransport({
+   host: smtpHost,
+   port: smtpPort,
+   secure: smtpPort === 465,
+   auth: {
+    user: smtpUser,
+    pass: smtpPass
+   }
+  });
+ }
+ return { transporter: mailTransporter, fromAddress };
 };
 
 const getOnChainIssuer = () => {
@@ -246,6 +280,62 @@ const calculateGascQuote = async (tokenAmount = 1) => {
 		gasFeeEth: gasEstimate.gasFeeEth,
 		gasPriceGwei: gasEstimate.gasPriceGwei
 	};
+};
+
+const buildEmailHtml = (userName, messageHtml) => {
+ const safeName = typeof userName === "string" && userName.trim().length ? userName.trim() : "there";
+ const bodyContent = typeof messageHtml === "string" ? messageHtml : "";
+ const logoUrl = `${functions.config().email?.asset_base ?? "https://goldenarmorstudio.art"}/GoldenArmorStudioLogo.gif`;
+ return `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta http-equiv="X-UA-Compatible" content="IE=edge" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Golden Armor Studio</title>
+<style>
+body { margin:0; padding:0; background:#05080c; font-family:'Inter', Arial, sans-serif; color:#f6f7f9; }
+.wrapper { width:100%; padding:40px 0; }
+.card { max-width:520px; margin:0 auto; text-align:center; background:#0b1118; border-radius:16px; padding:32px 28px; border:1px solid rgba(255,255,255,0.08); }
+.logo { width:120px; height:auto; margin-bottom:20px; }
+.message { font-size:15px; line-height:1.7; }
+.signature { margin-top:30px; font-weight:600; letter-spacing:0.02em; }
+@media (max-width:560px) { .card { margin:0 16px; padding:28px 20px; } }
+</style>
+</head>
+<body>
+<div class="wrapper">
+ <div class="card">
+  <img class="logo" src="${logoUrl}" alt="Golden Armor Studio Logo" />
+  <div class="message">
+   <p style="margin:0 0 16px 0;">Hey ${safeName},</p>
+   <div>${bodyContent}</div>
+   <p class="signature">Sincerely,<br/>The Golden Armor Studio Team</p>
+  </div>
+ </div>
+</div>
+</body>
+</html>`;
+};
+
+const sendEmail = async (emailMeta = {}, messageHtml) => {
+ const { to, subject = "A note from Golden Armor Studio", userName } = emailMeta || {};
+ const normalizedTo = typeof to === "string" ? to.trim() : "";
+ if (!normalizedTo) {
+  throw new functions.https.HttpsError("invalid-argument", "A recipient email address is required.");
+ }
+ if (typeof messageHtml !== "string" || !messageHtml.trim()) {
+  throw new functions.https.HttpsError("invalid-argument", "Message content is required.");
+ }
+ const { transporter, fromAddress } = getMailTransporter();
+ const html = buildEmailHtml(userName, messageHtml);
+ await transporter.sendMail({
+  to: normalizedTo,
+  from: fromAddress,
+  subject,
+  html
+ });
+ return true;
 };
 
 const allowedGroups = ["member", "subscriber", "donor", "admin", "developer"];
@@ -901,6 +991,18 @@ exports.getGascPrice = functions.https.onCall(async (data = {}) => {
 		functions.logger.error("Failed to fetch GASC price", error);
 		throw new functions.https.HttpsError("internal", "Unable to load token price.");
 	}
+});
+
+exports.sendEmail = functions.https.onCall(async (data = {}, context) => {
+	ensureAuthenticated(context);
+	const emailMeta = {
+		to: typeof data.to === "string" ? data.to.trim() : "",
+		subject: typeof data.subject === "string" ? data.subject.trim() : undefined,
+		userName: typeof data.userName === "string" ? data.userName : undefined
+	};
+	const messageHtml = typeof data.messageHtml === "string" ? data.messageHtml : data.message || "";
+	await sendEmail(emailMeta, messageHtml);
+	return { success: true };
 });
 
 exports.getUserTransactions = functions.https.onCall(async (data, context) => {
