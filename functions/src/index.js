@@ -1425,6 +1425,7 @@ exports.getDonorProfiles = functions.https.onCall(async () => {
 	}
 });
 const newsHandlers = require('./news');
+newsHandlers.configureEmailSender(sendEmail);
 exports.listNewsArticles = newsHandlers.listNewsArticles;
 exports.listPublishedNews = newsHandlers.listPublishedNews;
 exports.addNewsComment = newsHandlers.addNewsComment;

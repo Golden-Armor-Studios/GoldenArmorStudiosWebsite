@@ -10,6 +10,13 @@ const DEFAULT_IMAGE = `${DEFAULT_ORIGIN}/GoldenArmorStudio_WebPack/og-image.png`
 const SITE_NAME = "Golden Armor Studio";
 const ARTICLE_CACHE_TTL_MS = 60 * 1000;
 const articleCache = new Map();
+let transactionalEmailSender = null;
+
+const configureEmailSender = (senderFn) => {
+	if (typeof senderFn === "function") {
+		transactionalEmailSender = senderFn;
+	}
+};
 
 const getNewsRef = (newsId) => admin.firestore().collection(NEWS_COLLECTION).doc(newsId);
 const getCommentsRef = (newsId) => getNewsRef(newsId).collection("comments");
@@ -196,6 +203,45 @@ const updateNewsStatus = functions.https.onCall(async (data, context) => {
 			},
 			{ merge: true }
 		);
+		if (transactionalEmailSender) {
+			try {
+			const fullSnapshot = await docRef.get();
+			const articleData = fullSnapshot.exists ? (fullSnapshot.data() || {}) : {};
+			const authorUid = articleData.createdBy || context.auth.uid;
+			if (authorUid) {
+				const authorRecord = await admin.auth().getUser(authorUid).catch(() => null);
+				const authorEmail = authorRecord?.email || articleData.authorEmail || null;
+				if (authorEmail) {
+					const title = articleData.title || "Untitled Article";
+					const shareUrl = `${DEFAULT_ORIGIN}/news/${articleId}`;
+					const messageHtml = [
+						`<p>Your news update <strong>${title}</strong> is now live.</p>`,
+						`<p>Share it directly:</p>`,
+						`<p><a href="${shareUrl}" style="color:#4bd87a; font-weight:600;">${shareUrl}</a></p>`,
+						"<p><strong>Quick links:</strong></p>",
+						'<ul style="text-align:left; padding-left:20px;">',
+						'<li><a href="https://discord.gg/cTDGryK7" style="color:#4bd87a;">Join the dev & community hub</a></li>',
+						'<li><a href="https://goldenarmorstudio.art/buy-gasc" style="color:#4bd87a;">Buy GASC</a></li>',
+						"</ul>",
+						"<p>Reply to this email if you need changes or support.</p>"
+					].join("");
+					await transactionalEmailSender(
+						{
+							to: authorEmail,
+							userName: authorRecord?.displayName || authorEmail.split("@")[0] || "there",
+							subject: `“${title}” is live on Golden Armor Studio`
+						},
+						messageHtml
+					);
+				}
+			}
+			} catch (emailError) {
+				functions.logger.warn("Failed to send publication email", {
+					id: articleId,
+					error: emailError?.message || emailError
+				});
+			}
+		}
 	}
 
 	try {
@@ -977,5 +1023,6 @@ module.exports = {
 	deleteNewsArticle,
 	ensureDeveloper,
 	renderNewsShare,
-	renderBuyGascShare
+	renderBuyGascShare,
+	configureEmailSender
 };
