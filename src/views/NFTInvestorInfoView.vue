@@ -101,8 +101,8 @@ const TOKENS_PER_ETH = 1000
 const BASE_ETH = BASE_GASC / TOKENS_PER_ETH
 
 const ethPriceUsd = ref(3000)
-const targetEthReserve = ref(BASE_ETH)
-const buybackUsd = ref(45_000)
+const targetEthReserve = ref(50)
+const buybackUsd = ref(10_000)
 const lastFetchedQuote = ref(null)
 const priceTrend = ref('trend-up')
 const isFetchingQuote = ref(false)
