@@ -219,6 +219,35 @@ const estimateGasFeeUSD = async (ethUsd, tokenAmount = 1) => {
 	}
 };
 
+const calculateGascQuote = async (tokenAmount = 1) => {
+	const normalizedAmount = Math.max(Number(tokenAmount) || 1, 1);
+	const [ethUsd, tokensPerEther, investorOwnedTokens] = await Promise.all([
+		fetchEthPriceUSD(),
+		getTokensPerEther(),
+		getInvestorOwnedTokens().catch(async (error) => {
+			functions.logger.warn("Falling back to Firestore totals for investor holdings", error);
+			return sumNftIssuances();
+		})
+	]);
+
+	const basePrice = ethUsd / tokensPerEther;
+	const adjustment = computeAdjustment(investorOwnedTokens, ethUsd);
+	const finalPrice = basePrice + adjustment;
+	const gasEstimate = await estimateGasFeeUSD(ethUsd, normalizedAmount);
+
+	return {
+		ethUsd,
+		tokensPerEther,
+		basePrice,
+		adjustment,
+		finalPrice,
+		totalSold: investorOwnedTokens,
+		gasFeeUsd: gasEstimate.gasFeeUsd,
+		gasFeeEth: gasEstimate.gasFeeEth,
+		gasPriceGwei: gasEstimate.gasPriceGwei
+	};
+};
+
 const allowedGroups = ["member", "subscriber", "donor", "admin", "developer"];
 
 const guessExtensionFromContentType = (contentType = "") => {
@@ -776,6 +805,31 @@ exports.purchaseNft = functions.https.onCall(async (data, context) => {
 
 		const recordedAmount = Number(paymentIntent.amount_received ?? paymentIntent.amount ?? 0);
 		const recordedCurrency = (paymentIntent.currency || "usd").toLowerCase();
+		if (recordedCurrency !== "usd") {
+			throw new functions.https.HttpsError("failed-precondition", "Unsupported currency for NFT purchases.");
+		}
+
+		const latestQuote = await calculateGascQuote(parsedNftAmount);
+		const expectedUsd = (Number(latestQuote.finalPrice) || 0) * parsedNftAmount + (Number(latestQuote.gasFeeUsd) || 0);
+		const expectedAmount = Math.max(Math.round(expectedUsd * 100), 50);
+		const allowedDriftCents = 1;
+		if (!Number.isFinite(expectedUsd) || expectedUsd <= 0) {
+			throw new functions.https.HttpsError("internal", "Unable to verify pricing for this purchase.");
+		}
+		if (Math.abs(recordedAmount - expectedAmount) > allowedDriftCents) {
+			functions.logger.warn("Payment total mismatch", {
+				recordedAmount,
+				expectedAmount,
+				parsedNftAmount,
+				expectedUsd,
+				finalPrice: latestQuote.finalPrice,
+				gasFeeUsd: latestQuote.gasFeeUsd
+			});
+			throw new functions.https.HttpsError(
+				"failed-precondition",
+				"Payment amount no longer matches the current quote. Please refresh pricing and try again."
+			);
+		}
 
 		const chainTxHash = await issueNftsOnChain(normalizedAddress, parsedNftAmount);
 
@@ -826,29 +880,19 @@ exports.purchaseNft = functions.https.onCall(async (data, context) => {
 exports.getGascPrice = functions.https.onCall(async (data = {}) => {
 	try {
 		const tokenAmount = Number((typeof data === "object" && data !== null ? data.tokenAmount : undefined) ?? 1);
-		const [ethUsd, tokensPerEther, investorOwnedTokens] = await Promise.all([
-			fetchEthPriceUSD(),
-			getTokensPerEther(),
-			getInvestorOwnedTokens().catch(async (error) => {
-				functions.logger.warn("Falling back to Firestore totals for investor holdings", error);
-				return sumNftIssuances();
-			})
-		]);
-
-		const basePrice = ethUsd / tokensPerEther;
-		const adjustment = computeAdjustment(investorOwnedTokens, ethUsd);
-		const finalPrice = basePrice + adjustment;
-		const gasEstimate = await estimateGasFeeUSD(ethUsd, tokenAmount);
+		const quote = await calculateGascQuote(tokenAmount);
 
 		return {
 			success: true,
-			ethUsd,
-			tokensPerEther,
-			basePrice,
-			adjustment,
-			finalPrice,
-			totalSold: investorOwnedTokens,
-			gasFeeUsd: gasEstimate.gasFeeUsd
+			ethUsd: quote.ethUsd,
+			tokensPerEther: quote.tokensPerEther,
+			basePrice: quote.basePrice,
+			adjustment: quote.adjustment,
+			finalPrice: quote.finalPrice,
+			totalSold: quote.totalSold,
+			gasFeeUsd: quote.gasFeeUsd,
+			gasFeeEth: quote.gasFeeEth,
+			gasPriceGwei: quote.gasPriceGwei
 		};
 	} catch (error) {
 		if (error instanceof functions.https.HttpsError) {
