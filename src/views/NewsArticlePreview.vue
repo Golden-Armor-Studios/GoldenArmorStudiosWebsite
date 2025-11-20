@@ -247,6 +247,10 @@ const commentFlagModal = reactive({
   open: false,
   comment: null
 })
+const SHARE_SITE_ORIGIN = 'https://goldenarmorstudio.art'
+const DEFAULT_SHARE_IMAGE = `${SHARE_SITE_ORIGIN}/Buy-GASC-COver.png`
+const DEFAULT_SHARE_TITLE = 'Golden Armor Studio News'
+const DEFAULT_SHARE_DESCRIPTION = 'Updates from Golden Armor Studio.'
 const articleContentSegments = computed(() => {
   const html = article.value?.contentHtml
   if (!html || typeof window === 'undefined') return []
@@ -310,6 +314,72 @@ const articleContentSegments = computed(() => {
 
   return segments
 })
+
+const sanitizeShareText = (value) => {
+  if (typeof value !== 'string') return ''
+  return value.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+}
+
+const resolveArticleDescription = (record) => {
+  if (!record) return DEFAULT_SHARE_DESCRIPTION
+  const candidate =
+    record.summary ||
+    sanitizeShareText(record.contentHtml) ||
+    sanitizeShareText(record.legacyContent)
+  if (!candidate) return DEFAULT_SHARE_DESCRIPTION
+  return candidate.length > 200 ? `${candidate.slice(0, 197)}…` : candidate
+}
+
+const resolveCoverImage = (record) => {
+  if (!record) return DEFAULT_SHARE_IMAGE
+  const candidate =
+    record.coverImage?.downloadUrl ||
+    record.coverImage?.url ||
+    (typeof record.coverImage === 'string' ? record.coverImage : null) ||
+    record.legacyCoverImage
+  if (typeof candidate === 'string' && candidate.trim()) {
+    return candidate
+  }
+  return DEFAULT_SHARE_IMAGE
+}
+
+const applyArticleMeta = (record) => {
+  if (typeof document === 'undefined') return
+  const shareTitle = record?.title
+    ? `${record.title} — Golden Armor Studio`
+    : DEFAULT_SHARE_TITLE
+  const shareDescription = resolveArticleDescription(record)
+  const shareImage = resolveCoverImage(record)
+  const shareUrl = record?.id
+    ? `${SHARE_SITE_ORIGIN}/news/${record.id}`
+    : (typeof window !== 'undefined' ? window.location.href : `${SHARE_SITE_ORIGIN}/news`)
+
+  document.title = shareTitle
+  const metaDefinitions = [
+    { name: 'description', content: shareDescription },
+    { property: 'og:title', content: shareTitle },
+    { property: 'og:description', content: shareDescription },
+    { property: 'og:url', content: shareUrl },
+    { property: 'og:type', content: 'article' },
+    { property: 'og:image', content: shareImage },
+    { name: 'twitter:card', content: 'summary_large_image' },
+    { name: 'twitter:title', content: shareTitle },
+    { name: 'twitter:description', content: shareDescription },
+    { name: 'twitter:image', content: shareImage }
+  ]
+
+  metaDefinitions.forEach((definition) => {
+    const key = definition.name ? 'name' : 'property'
+    const selector = `meta[${key}="${definition[key]}"]`
+    let tag = document.head.querySelector(selector)
+    if (!tag) {
+      tag = document.createElement('meta')
+      tag.setAttribute(key, definition[key])
+      document.head.appendChild(tag)
+    }
+    tag.setAttribute('content', definition.content)
+  })
+}
 
 const isAuthenticated = computed(() => store.getters['user/isAuthenticated'])
 const currentUser = computed(() => store.state.user?.profile || null)
@@ -707,6 +777,7 @@ const getInitial = (value) => {
 }
 
 onMounted(() => {
+  applyArticleMeta(null)
   loadArticle()
   if (typeof window !== 'undefined') {
     window.addEventListener('keydown', handleGlobalKeydown)
@@ -720,6 +791,10 @@ watch(isAuthenticated, (authenticated) => {
     hasLiked.value = false
     likesCount.value = article.value?.likesCount ?? 0
   }
+})
+
+watch(article, (value) => {
+  applyArticleMeta(value)
 })
 
 onMounted(() => {

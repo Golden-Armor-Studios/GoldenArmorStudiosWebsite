@@ -8,7 +8,6 @@ import HomeView from '../views/HomeView.vue'
 import BuyGASCView from '../views/BuyGASCView.vue'
 import LoginView from '../views/LoginView.vue'
 import RepoOverviewView from '../views/RepoOverviewView.vue'
-import NFTInvestorInfoView from '../views/NFTInvestorInfoView.vue'
 import ColorIqOverviewView from '../views/ColorIqOverviewView.vue'
 import DiscordInviteView from '../views/DiscordInviteView.vue'
 import JoinTeamView from '../views/JoinTeamView.vue'
@@ -130,6 +129,7 @@ const routes = [
   },
   {
     path: '/nft-investor-info',
+    alias: '/app/nft-investor-info',
     name: 'NFTInvestorInfo',
     component: NFTInvestorInfoView
   },
@@ -169,7 +169,7 @@ router.beforeEach((to, from, next) => {
   if (to.meta?.requiresGroup) {
     const groups = store.getters['user/userGroups'] || []
     if (!isAuthenticated || !groups.includes(to.meta.requiresGroup)) {
-    next({ path: '/dashboard' })
+      next({ path: '/dashboard' })
       return
     }
   }

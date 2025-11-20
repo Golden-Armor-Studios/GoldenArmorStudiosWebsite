@@ -123,6 +123,10 @@
         "function": "renderBuyGascShare"
       },
       {
+        "source": "/nft-investor-info",
+        "function": "renderNftInvestorShare"
+      },
+      {
         "source": "**",
         "destination": "/index.html"
       }

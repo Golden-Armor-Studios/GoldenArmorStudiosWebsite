@@ -1050,6 +1050,34 @@ const renderBuyGascShare = functions.https.onRequest(async (_req, res) => {
 	}
 });
 
+const renderNftInvestorShare = functions.https.onRequest(async (_req, res) => {
+	try {
+		const responseHtml = buildShareHtml({
+			title: `${SITE_NAME} | GASC Investor Impact`,
+			description: "Model how Golden Armor Studio buybacks influence GASC pricing and liquidity.",
+			image: "https://goldenarmorstudio.art/Buy-GASC-COver.png",
+			url: `${DEFAULT_ORIGIN}/nft-investor-info`,
+			redirectUrl: `${DEFAULT_ORIGIN}/app/nft-investor-info`,
+			status: "public",
+			noindex: false
+		});
+
+		res.set("Cache-Control", "public, max-age=300, s-maxage=600");
+		res.status(200).send(responseHtml);
+	} catch (error) {
+		functions.logger.error("renderNftInvestorShare failed", error);
+		res.status(500).send(buildShareHtml({
+			title: `${SITE_NAME} | GASC Investor Impact`,
+			description: "Model how Golden Armor Studio buybacks influence GASC pricing and liquidity.",
+			image: DEFAULT_IMAGE,
+			url: `${DEFAULT_ORIGIN}/nft-investor-info`,
+			redirectUrl: `${DEFAULT_ORIGIN}/app/nft-investor-info`,
+			status: "error",
+			noindex: true
+		}));
+	}
+});
+
 module.exports = {
 	listNewsArticles,
 	listPublishedNews,
@@ -1066,5 +1094,6 @@ module.exports = {
 	ensureDeveloper,
 	renderNewsShare,
 	renderBuyGascShare,
+	renderNftInvestorShare,
 	configureEmailSender
 };

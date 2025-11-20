@@ -1624,3 +1624,4 @@ exports.getPublishedNewsArticle = newsHandlers.getPublishedNewsArticle;
 exports.deleteNewsArticle = newsHandlers.deleteNewsArticle;
 exports.renderNewsShare = newsHandlers.renderNewsShare;
 exports.renderBuyGascShare = newsHandlers.renderBuyGascShare;
+exports.renderNftInvestorShare = newsHandlers.renderNftInvestorShare;
