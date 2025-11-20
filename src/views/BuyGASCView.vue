@@ -15,6 +15,11 @@
 				Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy—fuel development today and position for upside before broader marketplace liquidity arrives.
 			</p>
 			<p class="support-text">
+				<a class="whitepaper-link" href="/What Is GoldenArmorStudioCoin (GASC)?.pdf" target="_blank" rel="noopener noreferrer">
+					Read “What Is GASC?” (PDF overview)
+				</a>
+			</p>
+			<p class="support-text">
 				<a class="whitepaper-link" href="/GoldenArmor Studio NFT.pdf" target="_blank" rel="noopener noreferrer">
 					Read the GoldenArmor Studio NFT Whitepaper (PDF)
 				</a>
