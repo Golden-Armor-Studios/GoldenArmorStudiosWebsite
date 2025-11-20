@@ -8,6 +8,7 @@ import HomeView from '../views/HomeView.vue'
 import BuyGASCView from '../views/BuyGASCView.vue'
 import LoginView from '../views/LoginView.vue'
 import RepoOverviewView from '../views/RepoOverviewView.vue'
+import NFTInvestorInfoView from '../views/NFTInvestorInfoView.vue'
 import ColorIqOverviewView from '../views/ColorIqOverviewView.vue'
 import DiscordInviteView from '../views/DiscordInviteView.vue'
 import JoinTeamView from '../views/JoinTeamView.vue'
@@ -125,6 +126,11 @@ const routes = [
     meta: {
       publicNews: true
     }
+  },
+  {
+    path: '/nft-investor-info',
+    name: 'NFTInvestorInfo',
+    component: NFTInvestorInfoView
   },
   {
     path: '/app/news/:id',
