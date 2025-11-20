@@ -57,7 +57,8 @@
 					<h3>Current Pool</h3>
 					<p><strong>{{ formatNumber(poolGascReserve) }}</strong> GASC in reserve</p>
 					<p><strong>{{ formatNumber(targetEthReserveDisplay) }}</strong> ETH backing</p>
-					<p>GASC share remaining: {{ (poolShare * 100).toFixed(2) }}%</p>
+					<p>GASC share remaining: {{ (poolShareRemaining * 100).toFixed(2) }}%</p>
+					<p>Pool Size (Gold): {{ formatNumber(BASE_GASC) }} GASC</p>
 					<p>Pool price: <strong>${{ currentPriceUsd.toFixed(4) }}</strong></p>
 				</div>
 				<div class="result-card">
@@ -115,6 +116,7 @@ const targetEthReserveDisplay = computed(() => sanitizedEthReserve.value)
 
 const poolGascReserve = computed(() => sanitizedEthReserve.value * TOKENS_PER_ETH)
 const poolShare = computed(() => poolGascReserve.value / BASE_GASC)
+const poolShareRemaining = computed(() => Math.max(0, 1 - poolShare.value))
 const dynamicProduct = computed(() => poolGascReserve.value * sanitizedEthReserve.value)
 
 const buyEth = computed(() => {
