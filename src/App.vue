@@ -562,7 +562,7 @@ const handleAvatarKeydown = (event) => {
 	}
 
 	.home-link .home-icon {
-		height: 175px;
+		height: 125px;
 		width: auto;
 		display: block;
 	}
@@ -732,7 +732,7 @@ const handleAvatarKeydown = (event) => {
 		}
 
 		.mobile-nav-logo img {
-			height: 100px;
+			height: 125px;
 			width: auto;
 		}
 
