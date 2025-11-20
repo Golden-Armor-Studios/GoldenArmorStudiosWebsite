@@ -21,13 +21,88 @@
 					</a>
 				</div>
 			</div>
-		<div class="hero-media">
-				<video class="hero-video" controls autoplay loop muted playsinline>
-					<source src="/Color_IQ_Logo.mp4" type="video/mp4">
-					Your browser does not support the video tag.
-				</video>
-				<p class="media-caption">Color IQ Pro — sharpen your perception in a world of shifting gradients.</p>
+		</section>
+
+			<section id="support" class="support card-standard">
+				<h2>Support Future Worlds</h2>
+				<p class="support-text">
+					Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy—fuel development today and position for upside before broader marketplace liquidity arrives.
+				</p>
+				<p class="support-text">
+					<a class="whitepaper-link" href="/What Is GoldenArmorStudioCoin (GASC)?.pdf" target="_blank" rel="noopener noreferrer">
+						Read “What Is GASC?” (PDF overview)
+					</a>
+				</p>
+				<p class="support-text">
+					<a class="whitepaper-link" href="/GoldenArmor Studio NFT.pdf" target="_blank" rel="noopener noreferrer">
+						Read the GoldenArmor Studio NFT Whitepaper (PDF)
+					</a>
+				</p>
+		<div class="price-ticker" :class="priceTrend">
+			<div class="ticker-card">
+				<p class="ticker-label">ETH (USD)</p>
+				<p class="ticker-value price-emphasis">{{ ethPriceDisplay }}</p>
 			</div>
+			<div class="ticker-card">
+				<p class="ticker-label">GASC (per token)</p>
+				<p class="ticker-value price-emphasis">{{ gascPriceDisplay }}</p>
+			</div>
+		</div>
+
+			<form class="donation-form" @submit.prevent="handlePurchase">
+				<div class="field-row">
+					<label for="gascAmount">GASC amount</label>
+					<input
+						id="gascAmount"
+						type="number"
+						min="1"
+						step="1"
+						v-model.number="gascAmount"
+						@input="refreshQuoteForAmount"
+						:disabled="isProcessing"
+					>
+				</div>
+
+			<div class="field-row estimate-row" :class="['estimate-row', totalTrend]">
+				<label>Estimated total (incl. gas)</label>
+				<p class="purchase-total price-emphasis">{{ gascUsdDisplay }}</p>
+			</div>
+
+				<div class="field-row">
+					<label for="depositAddress">Deposit address</label>
+					<input
+						id="depositAddress"
+						type="text"
+						v-model.trim="depositAddress"
+						placeholder="0x..."
+						autocomplete="off"
+						:disabled="isProcessing"
+					>
+				</div>
+
+
+				<div class="field-row">
+					<label>Card details</label>
+					<div ref="cardElementRef" class="card-element"></div>
+				</div>
+
+				<p v-if="purchaseMessage" :class="{ 'error-message': purchaseError, 'success-message': !purchaseError }">
+					{{ purchaseMessage }}
+				</p>
+
+				<button
+					type="submit"
+					class="donate-button"
+					:disabled="isPurchaseDisabled"
+				>
+					<span v-if="isProcessing">Processing…</span>
+					<span v-else-if="!isAuthenticated">Sign in to purchase</span>
+					<span v-else>Buy {{ gascAmount }} GASC ({{ gascUsdDisplay }})</span>
+				</button>
+				<p v-if="!isAuthenticated" class="signin-reminder">
+					Sign in with GitHub from the navigation menu to complete your purchase.
+				</p>
+			</form>
 		</section>
 
 		<section class="pillars">
@@ -131,65 +206,12 @@
 			</div>
 		</section>
 
-	<section id="support" class="support card-standard">
-			<h2>Support Future Worlds</h2>
-			<p class="support-text">Player-backed development keeps experimental ideas alive. Donate to unlock supporter perks and help us brave new quests.</p>
-			<form class="donation-form" @submit.prevent="handleDonate">
-				<div class="field-row">
-					<label for="donationAmount">Choose an amount</label>
-					<select
-						id="donationAmount"
-						v-model="selectedAmount"
-						:disabled="isProcessing"
-					>
-						<option v-for="amount in presetAmounts" :key="amount" :value="amount">
-							${{ amount }}
-						</option>
-						<option value="custom">Custom amount</option>
-					</select>
-				</div>
-
-				<div v-if="selectedAmount === 'custom'" class="field-row">
-					<label for="customAmount">Enter custom amount</label>
-					<input
-						id="customAmount"
-						v-model="customAmount"
-						type="number"
-						min="1"
-						step="1"
-						placeholder="25"
-						:disabled="isProcessing"
-					>
-				</div>
-
-				<div class="field-row">
-					<label>Card details</label>
-					<div ref="cardElementRef" class="card-element"></div>
-				</div>
-
-				<p v-if="donationMessage" :class="{ 'error-message': donationError, 'success-message': !donationError }">
-					{{ donationMessage }}
-				</p>
-
-	<button
-		type="submit"
-		class="donate-button"
-		:disabled="isDonateDisabled"
-	>
-		<span v-if="isProcessing">Processing…</span>
-		<span v-else-if="!isAuthenticated">Sign in to donate</span>
-		<span v-else>Donate {{ formattedAmount }}</span>
-	</button>
-				<p v-if="!isAuthenticated" class="signin-reminder">
-					Sign in with GitHub from the navigation menu to support the studio.
-				</p>
-			</form>
-		</section>
 	</div>
 </template>
 
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
+import { useRouter, useRoute } from 'vue-router'
 import { useStore } from 'vuex'
 import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/firebase'
@@ -199,13 +221,18 @@ import { loadStripe } from '@stripe/stripe-js'
 const publishableKey = 'pk_live_51SJccOKYzIVp9MDU493vDCMnQbSGmnrhPAa6YXR0PzxoqRs5YX8AWrv8zvAmBHfKBc7tTT6MQKbNDZAIQcA8bgV900hbt7WfPc'
 
 const store = useStore()
+const router = useRouter()
+const route = useRoute()
 const toast = useToast()
+const gascQuote = ref({ ethUsd: null, tokensPerEther: 1000, basePrice: null, adjustment: 0, finalPrice: null, totalSold: 0, gasFeeUsd: 0 })
+const lastFinalPrice = ref(null)
+const lastUsdTotal = ref(null)
+const priceIntervalId = ref(null)
 
-const presetAmounts = [10, 20, 50, 100]
-const selectedAmount = ref(presetAmounts[0])
-const customAmount = ref('')
-const donationMessage = ref('')
-const donationError = ref(false)
+const gascAmount = ref(100)
+const depositAddress = ref('')
+const purchaseMessage = ref('')
+const purchaseError = ref(false)
 const isProcessing = ref(false)
 const stripe = ref(null)
 const elements = ref(null)
@@ -218,35 +245,88 @@ const donorsSorted = ref([])
 
 const isAuthenticated = computed(() => store.getters['user/isAuthenticated'])
 
-const resolvedAmount = computed(() => {
-	if (selectedAmount.value === 'custom') {
-		const parsed = Number(customAmount.value)
-		return Number.isFinite(parsed) && parsed > 0 ? parsed : null
+const gascUsdValue = computed(() => {
+	if (gascQuote.value.finalPrice == null) {
+		return null
 	}
-	return selectedAmount.value
+	const parsed = Number(gascAmount.value)
+	if (!Number.isFinite(parsed) || parsed <= 0) {
+		return null
+	}
+	return gascQuote.value.finalPrice * parsed + (Number(gascQuote.value.gasFeeUsd) || 0)
 })
 
-const formattedAmount = computed(() => {
-	if (!resolvedAmount.value) {
-		return ''
+const ethPriceDisplay = computed(() => gascQuote.value.ethUsd == null ? '—' : `$${gascQuote.value.ethUsd.toFixed(2)}`)
+const gascPriceDisplay = computed(() => gascQuote.value.finalPrice == null ? '—' : `$${gascQuote.value.finalPrice.toFixed(4)}`)
+const gascUsdDisplay = computed(() => gascUsdValue.value == null ? '$0.00' : `$${gascUsdValue.value.toFixed(2)}`)
+const priceTrend = computed(() => {
+	if (gascQuote.value.finalPrice == null || lastFinalPrice.value == null) {
+		return 'neutral'
 	}
-	return `$${resolvedAmount.value}`
+	if (gascQuote.value.finalPrice > lastFinalPrice.value) {
+		return 'up'
+	}
+	if (gascQuote.value.finalPrice < lastFinalPrice.value) {
+		return 'down'
+	}
+	return 'neutral'
+})
+
+const totalTrend = computed(() => {
+	if (gascUsdValue.value == null || lastUsdTotal.value == null) {
+		return 'neutral'
+	}
+	if (gascUsdValue.value > lastUsdTotal.value) {
+		return 'up'
+	}
+	if (gascUsdValue.value < lastUsdTotal.value) {
+		return 'down'
+	}
+	return 'neutral'
 })
 
 const topDonors = computed(() => donorsSorted.value.slice(0, 3))
 const remainingDonors = computed(() => donorsSorted.value.slice(3))
 
-const isDonateDisabled = computed(() => {
+const isPurchaseDisabled = computed(() => {
 	if (isProcessing.value || !cardReady.value) {
 		return true
 	}
-	if (!isAuthenticated.value) {
-		return true
-	}
-	return !resolvedAmount.value
+	return !gascUsdValue.value || !depositAddress.value.trim()
 })
 
+const fetchPriceQuote = async (overrideAmount = null) => {
+	try {
+	const callable = httpsCallable(functions, 'getGascPrice')
+	const amount = Number(overrideAmount ?? gascAmount.value ?? 1)
+	const { data } = await callable({ tokenAmount: amount })
+	if (data?.success) {
+		lastFinalPrice.value = gascQuote.value.finalPrice ?? lastFinalPrice.value
+		lastUsdTotal.value = gascUsdValue.value ?? lastUsdTotal.value
+		gascQuote.value = {
+			ethUsd: Number(data.ethUsd) || null,
+			tokensPerEther: Number(data.tokensPerEther) || 1000,
+			basePrice: Number(data.basePrice) || null,
+			adjustment: Number(data.adjustment) || 0,
+			finalPrice: Number(data.finalPrice) || null,
+			totalSold: Number(data.totalSold) || 0,
+			gasFeeUsd: Number(data.gasFeeUsd) || 0
+		}
+		if (lastFinalPrice.value == null && gascQuote.value.finalPrice != null) {
+			lastFinalPrice.value = gascQuote.value.finalPrice
+		}
+		if (lastUsdTotal.value == null && gascUsdValue.value != null) {
+			lastUsdTotal.value = gascUsdValue.value
+		}
+	}
+	} catch (error) {
+		console.error('Failed to load GASC price', error)
+	}
+}
+
 onMounted(async () => {
+	fetchPriceQuote()
+	priceIntervalId.value = setInterval(fetchPriceQuote, 60000)
 	fetchDeveloperProfiles()
 	fetchDonorProfiles()
 	stripe.value = await loadStripe(publishableKey)
@@ -281,34 +361,48 @@ onBeforeUnmount(() => {
 	cardReady.value = false
 })
 
-const resetMessage = () => {
-	donationMessage.value = ''
-	donationError.value = false
+const resetPurchaseMessage = () => {
+	purchaseMessage.value = ''
+	purchaseError.value = false
 }
 
-const handleDonate = async () => {
-	resetMessage()
+const refreshQuoteForAmount = () => {
+	if (!isProcessing.value) {
+		fetchPriceQuote()
+	}
+}
+
+const handlePurchase = async () => {
+	resetPurchaseMessage()
 	if (!isAuthenticated.value) {
-		toast.info('Please sign in with GitHub before donating.')
+		router.push({
+			path: '/login',
+			query: { redirect: route.fullPath }
+		})
 		return
 	}
-	if (!resolvedAmount.value) {
-		donationMessage.value = 'Please choose a valid amount.'
-		donationError.value = true
+	if (!gascUsdValue.value || gascUsdValue.value <= 0) {
+		purchaseMessage.value = 'Please enter a valid GASC amount.'
+		purchaseError.value = true
+		return
+	}
+	if (!depositAddress.value.trim()) {
+		purchaseMessage.value = 'Please provide a deposit address.'
+		purchaseError.value = true
 		return
 	}
 	if (!stripe.value || !elements.value || !cardElement) {
-		donationMessage.value = 'Payment form is not ready. Refresh the page and try again.'
-		donationError.value = true
+		purchaseMessage.value = 'Payment form is not ready. Refresh the page and try again.'
+		purchaseError.value = true
 		return
 	}
 
 	isProcessing.value = true
 	try {
-		const amountInCents = Math.round(resolvedAmount.value * 100)
+		const amountInCents = Math.max(Math.round(gascUsdValue.value * 100), 50)
 		const createIntent = httpsCallable(functions, 'createStripePaymentIntent')
 		const { data } = await createIntent({
-			productId: 'donation',
+			productId: 'nft',
 			amount: amountInCents,
 			currency: 'usd'
 		})
@@ -320,38 +414,39 @@ const handleDonate = async () => {
 		})
 
 		if (error) {
-			donationMessage.value = error.message || 'Payment failed. Please try another card.'
-			donationError.value = true
-			toast.error(donationMessage.value)
+			purchaseMessage.value = error.message || 'Payment failed. Please try another card.'
+			purchaseError.value = true
+			toast.error(purchaseMessage.value)
 			return
 		}
 
 		if (paymentIntent?.status === 'succeeded') {
 			try {
-				const recordDonation = httpsCallable(functions, 'recordDonation')
-				await recordDonation({ paymentIntentId: paymentIntent.id })
+				const purchaseCallable = httpsCallable(functions, 'purchaseNft')
+				await purchaseCallable({
+					paymentIntentId: paymentIntent.id,
+					depositAddress: depositAddress.value.trim(),
+					nftAmount: gascAmount.value
+				})
 			} catch (recordError) {
-				console.error('Failed to record donation', recordError)
-				toast.warning('Donation processed, but we could not update your perks automatically. Please contact support if needed.')
+				console.error('Failed to finalize NFT purchase', recordError)
+				toast.warning('Payment processed, but delivery could not be confirmed. Contact support with your payment ID.')
 			}
 
-			donationMessage.value = 'Thank you for supporting Golden Armor Studios!'
-			donationError.value = false
-			toast.success('Donation successful!')
-			customAmount.value = ''
-			if (selectedAmount.value === 'custom') {
-				selectedAmount.value = presetAmounts[0]
-			}
+			purchaseMessage.value = 'Purchase complete! Check your wallet for the incoming NFT.'
+			purchaseError.value = false
+			toast.success('Purchase successful!')
+			depositAddress.value = ''
 			cardElement.clear()
 		} else {
-			donationMessage.value = 'Payment incomplete. Please verify your card details.'
-			donationError.value = true
-			toast.error(donationMessage.value)
+			purchaseMessage.value = 'Payment incomplete. Please verify your card details.'
+			purchaseError.value = true
+			toast.error(purchaseMessage.value)
 		}
 	} catch (error) {
-		const message = error?.message ?? 'Unable to process the donation right now.'
-		donationMessage.value = message
-		donationError.value = true
+		const message = error?.message ?? 'Unable to process the purchase right now.'
+		purchaseMessage.value = message
+		purchaseError.value = true
 		toast.error(message)
 	} finally {
 		isProcessing.value = false
@@ -509,27 +604,6 @@ const fetchDonorProfiles = async () => {
 	.primary-button:active,
 	.secondary-button:active {
 		transform: translateY(1px);
-	}
-
-	.hero-media {
-		flex: 1 1 320px;
-		display: flex;
-		flex-direction: column;
-		gap: 0.75rem;
-		align-items: center;
-	}
-
-	.hero-video {
-		width: 100%;
-		max-width: 420px;
-		border-radius: 16px;
-		box-shadow: 0 12px 32px rgba(0, 0, 0, 0.35);
-	}
-
-	.media-caption {
-		margin: 0;
-		color: #d5d7de;
-		font-size: 0.95rem;
 	}
 
 	.pillars {
@@ -785,22 +859,87 @@ const fetchDonorProfiles = async () => {
 		margin: 0 auto;
 	}
 
-	.support-text {
-		margin: 0;
-		color: #d5d7de;
+		.support-text {
+			margin: 0;
+			color: #d5d7de;
+			max-width: 360px;
+			text-align: center;
+		}
+
+		.whitepaper-link {
+			color: rgb(75, 216, 122);
+			text-decoration: none;
+			font-weight: 600;
+		}
+
+		.price-ticker {
+			display: flex;
+			flex-wrap: wrap;
+			gap: 1.5rem;
+			justify-content: center;
+			width: 100%;
+			margin-top: 0.75rem;
+		}
+
+		.price-emphasis {
+			font-size: 1.6rem;
+			font-weight: 800;
+		}
+
+		.ticker-card {
+			display: flex;
+			flex-direction: column;
+			align-items: center;
+			gap: 0.2rem;
+			min-width: 160px;
+		}
+
+		.ticker-label {
+			font-size: 0.85rem;
+			letter-spacing: 0.04em;
+			text-transform: uppercase;
+			color: #9aa5b6;
+			margin: 0;
+		}
+
+		.ticker-value {
+			margin: 0;
+		}
+
+		.price-ticker.up .ticker-value {
+			color: #4bd87a;
+		}
+
+	.price-ticker.down .ticker-value {
+		color: #ff6b6b;
 	}
 
-	.donation-form {
-		display: flex;
-		flex-direction: column;
-		gap: 1rem;
-		width: 100%;
-	}
+		.donation-form {
+			display: flex;
+			flex-direction: column;
+			gap: 1rem;
+			width: 100%;
+			max-width: 360px;
+			margin: 0 auto;
+		}
 
 	.field-row {
 		display: flex;
 		flex-direction: column;
 		gap: 0.4rem;
+	}
+
+	.estimate-row .purchase-total {
+		font-size: 1.5rem;
+		font-weight: 800;
+	}
+
+	.estimate-row.up .purchase-total {
+		color: #4bd87a;
+	}
+
+	.estimate-row.down .purchase-total {
+		color: #ff6b6b;
 	}
 
 	label {

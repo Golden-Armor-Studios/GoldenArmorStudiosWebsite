@@ -10,6 +10,13 @@ const DEFAULT_IMAGE = `${DEFAULT_ORIGIN}/GoldenArmorStudio_WebPack/og-image.png`
 const SITE_NAME = "Golden Armor Studio";
 const ARTICLE_CACHE_TTL_MS = 60 * 1000;
 const articleCache = new Map();
+let transactionalEmailSender = null;
+
+const configureEmailSender = (senderFn) => {
+	if (typeof senderFn === "function") {
+		transactionalEmailSender = senderFn;
+	}
+};
 
 const getNewsRef = (newsId) => admin.firestore().collection(NEWS_COLLECTION).doc(newsId);
 const getCommentsRef = (newsId) => getNewsRef(newsId).collection("comments");
@@ -196,6 +203,87 @@ const updateNewsStatus = functions.https.onCall(async (data, context) => {
 			},
 			{ merge: true }
 		);
+		if (transactionalEmailSender) {
+			try {
+				const fullSnapshot = await docRef.get();
+				const articleData = fullSnapshot.exists ? (fullSnapshot.data() || {}) : {};
+				const title = articleData.title || "Untitled Article";
+				const shareUrl = `${DEFAULT_ORIGIN}/news/${articleId}`;
+				const quickLinksHtml = [
+					"<p><strong>Quick links:</strong></p>",
+					'<ul style="text-align:left; padding-left:20px;">',
+					'<li><a href="https://discord.gg/cTDGryK7" style="color:#4bd87a;">Join the dev & community hub</a></li>',
+					'<li><a href="https://goldenarmorstudio.art/buy-gasc" style="color:#4bd87a;">Buy GASC</a></li>',
+					"</ul>"
+				].join("");
+
+				const sendOperations = [];
+				const emailedSet = new Set();
+				const enqueueSend = (email, userName, subject, html, label) => {
+					const trimmed = typeof email === "string" ? email.trim() : "";
+					if (!trimmed || emailedSet.has(trimmed)) {
+						return;
+					}
+					emailedSet.add(trimmed);
+					sendOperations.push(
+						transactionalEmailSender(
+							{
+								to: trimmed,
+								userName: userName || trimmed.split("@")[0] || "there",
+								subject
+							},
+							html
+						).catch((error) => {
+							functions.logger.warn("Failed to send publication email", {
+								id: articleId,
+								email: trimmed,
+								label,
+								error: error?.message || error
+							});
+						})
+					);
+				};
+
+				const authorUid = articleData.createdBy || context.auth.uid;
+				if (authorUid) {
+					const authorRecord = await admin.auth().getUser(authorUid).catch(() => null);
+					const authorEmail = authorRecord?.email || articleData.authorEmail || null;
+					if (authorEmail) {
+						const authorHtml = [
+							`<p>Your news update <strong>${title}</strong> is now live.</p>`,
+							`<p>Share it directly:</p>`,
+							`<p><a href="${shareUrl}" style="color:#4bd87a; font-weight:600;">${shareUrl}</a></p>`,
+							quickLinksHtml,
+							"<p>Reply to this email if you need changes or support.</p>"
+						].join("");
+						enqueueSend(authorEmail, authorRecord?.displayName, `“${title}” is live on Golden Armor Studio`, authorHtml, "author");
+					}
+				}
+
+				const audienceHtml = [
+					`<p><strong>${title}</strong> just went live.</p>`,
+					`<p><a href="${shareUrl}" style="color:#4bd87a; font-weight:600;">Open the article and share it with your community.</a></p>`,
+					quickLinksHtml,
+					"<p>Have thoughts or need support? Reply to this email.</p>"
+				].join("");
+
+				const usersSnapshot = await admin.firestore().collection("users").get();
+				usersSnapshot.forEach((doc) => {
+					const data = doc.data() || {};
+					const email = data.email;
+					const name = data.displayName || data.githubDisplayName || data.username || "";
+					enqueueSend(email, name, `${title} – new from Golden Armor Studio`, audienceHtml, "audience");
+				});
+
+				await Promise.all(sendOperations);
+			} catch (emailError) {
+				functions.logger.warn("Failed to send publication email", {
+					id: articleId,
+					error: emailError?.message || emailError
+				});
+			}
+		}
+
 	}
 
 	try {
@@ -934,6 +1022,34 @@ const renderNewsShare = functions.https.onRequest(async (req, res) => {
 	}
 });
 
+const renderBuyGascShare = functions.https.onRequest(async (_req, res) => {
+	try {
+		const responseHtml = buildShareHtml({
+			title: `${SITE_NAME} | GASC - New Crypto!`,
+			description: "Support Future Worlds by purchasing GASC and funding Golden Armor Studio’s next generation of prototypes.",
+			image: "https://goldenarmorstudio.art/Buy-GASC-COver.png",
+			url: `${DEFAULT_ORIGIN}/buy-gasc`,
+			redirectUrl: `${DEFAULT_ORIGIN}/app/buy-gasc`,
+			status: "public",
+			noindex: false
+		});
+
+		res.set("Cache-Control", "public, max-age=300, s-maxage=600");
+		res.status(200).send(responseHtml);
+	} catch (error) {
+		functions.logger.error("renderBuyGascShare failed", error);
+		res.status(500).send(buildShareHtml({
+			title: `${SITE_NAME} | GASC - New Crypto!`,
+			description: "Support Future Worlds by purchasing GASC and funding Golden Armor Studio’s next generation of prototypes.",
+			image: DEFAULT_IMAGE,
+			url: `${DEFAULT_ORIGIN}/buy-gasc`,
+			redirectUrl: `${DEFAULT_ORIGIN}/app/buy-gasc`,
+			status: "error",
+			noindex: true
+		}));
+	}
+});
+
 module.exports = {
 	listNewsArticles,
 	listPublishedNews,
@@ -948,5 +1064,7 @@ module.exports = {
 	getPublishedNewsArticle,
 	deleteNewsArticle,
 	ensureDeveloper,
-	renderNewsShare
+	renderNewsShare,
+	renderBuyGascShare,
+	configureEmailSender
 };

@@ -20,12 +20,12 @@
 				class="nav-links"
 				:class="{ open: isNavOpen }"
 			>
-				<div class="mobile-nav-logo">
-					<img src="/golden-armor.png" alt="Golden Armor Studio logo">
-				</div>
-				<div class="nav-items">
-					<RouterLink class="nav-link home-link" to="/" @click="closeNav" @mouseenter="handleNavHover" @focus="handleNavHover">
-						<img class="home-icon" src="/golden-armor.png" alt="Golden Armor Studio crest">
+			<div class="mobile-nav-logo">
+				<img src="/GoldenArmorStudioLogo.gif" alt="Golden Armor Studio logo">
+			</div>
+			<div class="nav-items">
+				<RouterLink class="nav-link home-link" to="/" @click="closeNav" @mouseenter="handleNavHover" @focus="handleNavHover">
+					<img class="home-icon" src="/GoldenArmorStudioLogo.gif" alt="Golden Armor Studio crest">
 						<span>Home</span>
 					</RouterLink>
                     <RouterLink class="nav-link" to="/news" @click="closeNav" @mouseenter="handleNavHover" @focus="handleNavHover">News</RouterLink>
@@ -562,7 +562,7 @@ const handleAvatarKeydown = (event) => {
 	}
 
 	.home-link .home-icon {
-		height: 175px;
+		height: 125px;
 		width: auto;
 		display: block;
 	}
@@ -732,7 +732,7 @@ const handleAvatarKeydown = (event) => {
 		}
 
 		.mobile-nav-logo img {
-			height: 100px;
+			height: 125px;
 			width: auto;
 		}
 
