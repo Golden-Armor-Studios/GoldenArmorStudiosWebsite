@@ -33,13 +33,9 @@
 			<div class="input-grid">
 				<label>
 					<span>ETH price (USD)</span>
-					<input
-						type="number"
-						min="500"
-						step="25"
-						v-model.number="ethPriceUsd"
-						@input="ethPriceTouched = true"
-					>
+					<div class="live-price" :class="priceTrendClass">
+						${{ ethPriceUsd.toFixed(2) }}
+					</div>
 				</label>
 				<label>
 					<span>ETH in GASC pool</span>
@@ -103,11 +99,10 @@ const BASE_ETH = BASE_GASC / TOKENS_PER_ETH
 const CONSTANT_PRODUCT = BASE_GASC * BASE_ETH
 
 const ethPriceUsd = ref(3000)
-const ethPriceTouched = ref(false)
 const targetEthReserve = ref(BASE_ETH)
 const buybackUsd = ref(45_000)
 const lastFetchedQuote = ref(null)
-const priceTrend = ref('neutral')
+const priceTrend = ref('up')
 const isFetchingQuote = ref(false)
 let quoteIntervalId = null
 
@@ -188,7 +183,7 @@ const fetchQuote = async () => {
 				priceTrend.value = 'neutral'
 			}
 			lastFetchedQuote.value = parsed
-			if (!ethPriceTouched.value && Number.isFinite(parsed.ethUsd)) {
+			if (Number.isFinite(parsed.ethUsd)) {
 				ethPriceUsd.value = parsed.ethUsd
 			}
 		}
