@@ -507,6 +507,39 @@ exports.addDefaultGroup = functions.auth.user().onCreate(async (user) => {
 				{merge: true}
 			);
 		functions.logger.info(`Default group 'member' assigned to user ${user.uid}`);
+
+		if (user.email) {
+			const userName =
+				(user.displayName && user.displayName.trim())
+					? user.displayName.trim()
+					: (user.email.split("@")[0] || "there");
+			const messageHtml = [
+				"<p>Thanks for creating an account with Golden Armor Studio. You now have access to developer updates, experimental drops, and the on-chain work powering our games.</p>",
+				'<p><strong>Quick links:</strong></p>',
+				'<ul style="text-align:left; padding-left:20px;">',
+				'<li><a href="https://discord.gg/cTDGryK7" style="color:#4bd87a;">Join the dev & community hub</a></li>',
+				'<li><a href="https://goldenarmorstudio.art/buy-gasc" style="color:#4bd87a;">Purchase GASC (primary sale)</a></li>',
+				"</ul>",
+				"<p>Need help or have feedback? You can reply directly to this email and the team will get back to you.</p>"
+			].join("");
+
+			try {
+				await sendEmail(
+					{
+						to: user.email,
+						userName,
+						subject: "Welcome to Golden Armor Studio"
+					},
+					messageHtml
+				);
+			} catch (emailError) {
+				functions.logger.warn("Failed to send welcome email", {
+					uid: user.uid,
+					email: user.email,
+					error: emailError?.message || emailError
+				});
+			}
+		}
 	} catch (error) {
 		functions.logger.error("Failed to assign default group", error);
 		throw error;
