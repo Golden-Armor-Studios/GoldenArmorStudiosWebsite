@@ -985,6 +985,46 @@ exports.purchaseNft = functions.https.onCall(async (data, context) => {
 			createdAt: admin.firestore.FieldValue.serverTimestamp()
 		});
 
+		try {
+			const userRecord = await admin.auth().getUser(context.auth.uid);
+			const recipientEmail = userRecord.email || context.auth.token?.email || null;
+			if (recipientEmail) {
+				const displayName = userRecord.displayName || recipientEmail.split("@")[0] || "there";
+				const totalUsd = (recordedAmount / 100).toFixed(2);
+				const etherscanUrl = chainTxHash ? `https://etherscan.io/tx/${chainTxHash}` : null;
+				const messageHtml = [
+					"<p>Thank you for investing in Golden Armor Studio. Your support helps us build new experiences and expand the on-chain economy.</p>",
+					"<p><strong>Purchase summary:</strong></p>",
+					'<ul style="text-align:left; padding-left:20px;">',
+					`<li>GASC issued: <strong>${parsedNftAmount.toLocaleString()}</strong></li>`,
+					`<li>Total paid: <strong>$${totalUsd} USD</strong></li>`,
+					`<li>Deposit address: <code style="word-break:break-all;">${normalizedAddress}</code></li>`,
+					chainTxHash && etherscanUrl ? `<li>Transaction: <a href="${etherscanUrl}" style="color:#4bd87a;">View on Etherscan</a></li>` : "",
+					"</ul>",
+					"<p><strong>Quick links:</strong></p>",
+					'<ul style="text-align:left; padding-left:20px;">',
+					'<li><a href="https://discord.gg/cTDGryK7" style="color:#4bd87a;">Join the dev & community hub</a></li>',
+					'<li><a href="https://goldenarmorstudio.art/buy-gasc" style="color:#4bd87a;">Primary sale portal</a></li>',
+					"</ul>",
+					"<p>If you need anything, just reply to this email and we’ll help out.</p>"
+				].filter(Boolean).join("");
+
+				await sendEmail(
+					{
+						to: recipientEmail,
+						userName: displayName,
+						subject: "Your Golden Armor Studio purchase receipt"
+					},
+					messageHtml
+				);
+			}
+		} catch (emailError) {
+			functions.logger.warn("Failed to send purchase email", {
+				uid: context.auth.uid,
+				error: emailError?.message || emailError
+			});
+		}
+
 		return {
 			success: true,
 			nftAmount: parsedNftAmount,
