@@ -282,6 +282,14 @@ const calculateGascQuote = async (tokenAmount = 1) => {
 	};
 };
 
+const buildQuickLinksHtml = () => [
+	"<p><strong>Quick links:</strong></p>",
+	'<ul style="text-align:left; padding-left:20px;">',
+	'<li><a href="https://discord.gg/cTDGryK7" style="color:#4bd87a;">Join the dev & community hub</a></li>',
+	'<li><a href="https://goldenarmorstudio.art/buy-gasc" style="color:#4bd87a;">Buy GASC</a></li>',
+	"</ul>"
+].join("");
+
 const buildEmailHtml = (userName, messageHtml) => {
  const safeName = typeof userName === "string" && userName.trim().length ? userName.trim() : "there";
  const bodyContent = typeof messageHtml === "string" ? messageHtml : "";
@@ -1001,11 +1009,7 @@ exports.purchaseNft = functions.https.onCall(async (data, context) => {
 					`<li>Deposit address: <code style="word-break:break-all;">${normalizedAddress}</code></li>`,
 					chainTxHash && etherscanUrl ? `<li>Transaction: <a href="${etherscanUrl}" style="color:#4bd87a;">View on Etherscan</a></li>` : "",
 					"</ul>",
-					"<p><strong>Quick links:</strong></p>",
-					'<ul style="text-align:left; padding-left:20px;">',
-					'<li><a href="https://discord.gg/cTDGryK7" style="color:#4bd87a;">Join the dev & community hub</a></li>',
-					'<li><a href="https://goldenarmorstudio.art/buy-gasc" style="color:#4bd87a;">Primary sale portal</a></li>',
-					"</ul>",
+					buildQuickLinksHtml(),
 					"<p>If you need anything, just reply to this email and we’ll help out.</p>"
 				].filter(Boolean).join("");
 
@@ -1151,6 +1155,69 @@ exports.listUsers = functions.https.onCall(async (data, context) => {
 
 	return users;
 });
+
+exports.weeklyGascDigest = functions.pubsub
+	.schedule("0 8 * * 5")
+	.timeZone("America/Chicago")
+	.onRun(async () => {
+		if (!sendEmail) {
+			functions.logger.warn("weeklyGascDigest missing mail helper");
+			return null;
+		}
+
+		let quote;
+		try {
+			quote = await calculateGascQuote(1);
+		} catch (error) {
+			functions.logger.error("Failed to compute weekly GASC quote", error);
+			return null;
+		}
+
+		const finalPrice = Number(quote.finalPrice) || 0;
+		const ethUsd = Number(quote.ethUsd) || 0;
+		const adjustment = Number(quote.adjustment) || 0;
+		const totalSold = Number(quote.totalSold) || 0;
+
+		const messageHtml = [
+			"<p><strong>Weekly GASC update</strong></p>",
+			`<p>Current on-site price: <strong>$${finalPrice.toFixed(4)}</strong> per GASC.</p>`,
+			"<p>Thanks for backing Golden Armor Studio.</p>",
+			buildQuickLinksHtml(),
+			"<p>Reply to this email if you need anything.</p>"
+		].join("");
+
+		const snapshot = await admin.firestore().collection("users").get();
+		const sendTasks = [];
+		const emailed = new Set();
+
+		snapshot.forEach((doc) => {
+			const data = doc.data() || {};
+			const email = typeof data.email === "string" ? data.email.trim() : "";
+			if (!email || emailed.has(email)) {
+				return;
+			}
+			emailed.add(email);
+			const name = data.displayName || data.githubDisplayName || email.split("@")[0] || "there";
+			sendTasks.push(
+				sendEmail(
+					{
+						to: email,
+						userName: name,
+						subject: "Weekly GASC price update"
+					},
+					messageHtml
+				).catch((error) => {
+					functions.logger.warn("Failed to send weekly digest", {
+						email,
+						error: error?.message || error
+					});
+				})
+			);
+		});
+
+		await Promise.all(sendTasks);
+		return null;
+	});
 
 exports.updateUserGroups = functions.https.onCall(async (data, context) => {
 	ensureAdmin(context);
