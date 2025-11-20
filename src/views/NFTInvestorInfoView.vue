@@ -1,7 +1,7 @@
 <template>
 	<div class="nft-info-wrapper">
 		<section class="card-standard intro">
-			<h1>NFT Investor Impact</h1>
+			<h1>GASC Investor Impact</h1>
 			<p>
 				This tool mirrors the Uniswap v2-style pool described in the financial model. It shows how the studio's
 				monthly buybacks influence the on-chain price of GASC based on pool depth and ETH/USD assumptions.
