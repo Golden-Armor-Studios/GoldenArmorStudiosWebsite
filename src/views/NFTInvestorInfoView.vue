@@ -8,7 +8,7 @@
 			</p>
 			<ul>
 				<li>Initial ratio: <strong>1 ETH = 1,000 GASC</strong> (0.001 ETH per GASC).</li>
-				<li>Initial pool: <strong>500,000 GASC</strong> against 500 ETH (constant product k = 250,000,000).</li>
+				<li>Pool Size Goal: <strong>500,000 GASC</strong> against 500 ETH (constant product k = 250,000,000).</li>
 				<li>Company buybacks inject fresh ETH, shrink the GASC side of the pool, and raise the price.</li>
 			</ul>
 		</section>
@@ -58,7 +58,7 @@
 					<p><strong>{{ formatNumber(poolGascReserve) }}</strong> GASC in reserve</p>
 					<p><strong>{{ formatNumber(targetEthReserveDisplay) }}</strong> ETH backing</p>
 					<p>GASC share remaining: {{ (poolShareRemaining * 100).toFixed(2) }}%</p>
-					<p>Pool Size (Gold): {{ formatNumber(BASE_GASC) }} GASC</p>
+					<p>Pool Size Goal: {{ formatNumber(BASE_GASC) }} GASC</p>
 					<p>Pool price: <strong>${{ currentPriceUsd.toFixed(4) }}</strong></p>
 				</div>
 				<div class="result-card">
@@ -85,6 +85,7 @@
 				<li>Pool inputs adjust the reserves while preserving that k value.</li>
 				<li>Buyback adds ETH (buyback USD ÷ ETH price) then recomputes the matching GASC reserve (k ÷ new ETH).</li>
 				<li>Tokens removed and price change derive from the new reserve ratio.</li>
+				<li>Keeping the pool close to 500,000 GASC lowers price volatility; a deeper reserve absorbs larger buybacks without dramatic spikes.</li>
 			</ol>
 		</section>
 	</div>
