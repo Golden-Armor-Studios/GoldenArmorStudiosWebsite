@@ -205,36 +205,77 @@ const updateNewsStatus = functions.https.onCall(async (data, context) => {
 		);
 		if (transactionalEmailSender) {
 			try {
-			const fullSnapshot = await docRef.get();
-			const articleData = fullSnapshot.exists ? (fullSnapshot.data() || {}) : {};
-			const authorUid = articleData.createdBy || context.auth.uid;
-			if (authorUid) {
-				const authorRecord = await admin.auth().getUser(authorUid).catch(() => null);
-				const authorEmail = authorRecord?.email || articleData.authorEmail || null;
-				if (authorEmail) {
-					const title = articleData.title || "Untitled Article";
-					const shareUrl = `${DEFAULT_ORIGIN}/news/${articleId}`;
-					const messageHtml = [
-						`<p>Your news update <strong>${title}</strong> is now live.</p>`,
-						`<p>Share it directly:</p>`,
-						`<p><a href="${shareUrl}" style="color:#4bd87a; font-weight:600;">${shareUrl}</a></p>`,
-						"<p><strong>Quick links:</strong></p>",
-						'<ul style="text-align:left; padding-left:20px;">',
-						'<li><a href="https://discord.gg/cTDGryK7" style="color:#4bd87a;">Join the dev & community hub</a></li>',
-						'<li><a href="https://goldenarmorstudio.art/buy-gasc" style="color:#4bd87a;">Buy GASC</a></li>',
-						"</ul>",
-						"<p>Reply to this email if you need changes or support.</p>"
-					].join("");
-					await transactionalEmailSender(
-						{
-							to: authorEmail,
-							userName: authorRecord?.displayName || authorEmail.split("@")[0] || "there",
-							subject: `“${title}” is live on Golden Armor Studio`
-						},
-						messageHtml
+				const fullSnapshot = await docRef.get();
+				const articleData = fullSnapshot.exists ? (fullSnapshot.data() || {}) : {};
+				const title = articleData.title || "Untitled Article";
+				const shareUrl = `${DEFAULT_ORIGIN}/news/${articleId}`;
+				const quickLinksHtml = [
+					"<p><strong>Quick links:</strong></p>",
+					'<ul style="text-align:left; padding-left:20px;">',
+					'<li><a href="https://discord.gg/cTDGryK7" style="color:#4bd87a;">Join the dev & community hub</a></li>',
+					'<li><a href="https://goldenarmorstudio.art/buy-gasc" style="color:#4bd87a;">Buy GASC</a></li>',
+					"</ul>"
+				].join("");
+
+				const sendOperations = [];
+				const emailedSet = new Set();
+				const enqueueSend = (email, userName, subject, html, label) => {
+					const trimmed = typeof email === "string" ? email.trim() : "";
+					if (!trimmed || emailedSet.has(trimmed)) {
+						return;
+					}
+					emailedSet.add(trimmed);
+					sendOperations.push(
+						transactionalEmailSender(
+							{
+								to: trimmed,
+								userName: userName || trimmed.split("@")[0] || "there",
+								subject
+							},
+							html
+						).catch((error) => {
+							functions.logger.warn("Failed to send publication email", {
+								id: articleId,
+								email: trimmed,
+								label,
+								error: error?.message || error
+							});
+						})
 					);
+				};
+
+				const authorUid = articleData.createdBy || context.auth.uid;
+				if (authorUid) {
+					const authorRecord = await admin.auth().getUser(authorUid).catch(() => null);
+					const authorEmail = authorRecord?.email || articleData.authorEmail || null;
+					if (authorEmail) {
+						const authorHtml = [
+							`<p>Your news update <strong>${title}</strong> is now live.</p>`,
+							`<p>Share it directly:</p>`,
+							`<p><a href="${shareUrl}" style="color:#4bd87a; font-weight:600;">${shareUrl}</a></p>`,
+							quickLinksHtml,
+							"<p>Reply to this email if you need changes or support.</p>"
+						].join("");
+						enqueueSend(authorEmail, authorRecord?.displayName, `“${title}” is live on Golden Armor Studio`, authorHtml, "author");
+					}
 				}
-			}
+
+				const audienceHtml = [
+					`<p><strong>${title}</strong> just went live.</p>`,
+					`<p><a href="${shareUrl}" style="color:#4bd87a; font-weight:600;">Open the article and share it with your community.</a></p>`,
+					quickLinksHtml,
+					"<p>Have thoughts or need support? Reply to this email.</p>"
+				].join("");
+
+				const usersSnapshot = await admin.firestore().collection("users").get();
+				usersSnapshot.forEach((doc) => {
+					const data = doc.data() || {};
+					const email = data.email;
+					const name = data.displayName || data.githubDisplayName || data.username || "";
+					enqueueSend(email, name, `${title} – new from Golden Armor Studio`, audienceHtml, "audience");
+				});
+
+				await Promise.all(sendOperations);
 			} catch (emailError) {
 				functions.logger.warn("Failed to send publication email", {
 					id: articleId,
@@ -242,6 +283,7 @@ const updateNewsStatus = functions.https.onCall(async (data, context) => {
 				});
 			}
 		}
+
 	}
 
 	try {
