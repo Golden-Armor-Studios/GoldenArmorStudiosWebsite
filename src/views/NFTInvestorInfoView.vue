@@ -80,9 +80,9 @@
 		<section class="card-standard methodology">
 			<h2>Calculation Details</h2>
 			<ol>
-				<li>Constant product: k = 500,000 GASC × 500 ETH = 250,000,000.</li>
-				<li>Pool inputs adjust the current reserves while preserving k.</li>
-				<li>Buyback adds ETH (buyback USD ÷ ETH price) then recomputes the matching GASC reserve (k / new ETH).</li>
+				<li>Constant product k equals (ETH reserve × GASC reserve). Defaults to 500,000 × 500 = 250,000,000 but updates with your inputs.</li>
+				<li>Pool inputs adjust the reserves while preserving that k value.</li>
+				<li>Buyback adds ETH (buyback USD ÷ ETH price) then recomputes the matching GASC reserve (k ÷ new ETH).</li>
 				<li>Tokens removed and price change derive from the new reserve ratio.</li>
 			</ol>
 		</section>
@@ -97,7 +97,6 @@ import { functions } from '@/firebase'
 const BASE_GASC = 500_000
 const TOKENS_PER_ETH = 1000
 const BASE_ETH = BASE_GASC / TOKENS_PER_ETH
-const CONSTANT_PRODUCT = BASE_GASC * BASE_ETH
 
 const ethPriceUsd = ref(3000)
 const targetEthReserve = ref(BASE_ETH)
@@ -114,8 +113,9 @@ const sanitizedEthReserve = computed(() => {
 
 const targetEthReserveDisplay = computed(() => sanitizedEthReserve.value)
 
-const poolGascReserve = computed(() => CONSTANT_PRODUCT / sanitizedEthReserve.value)
+const poolGascReserve = computed(() => sanitizedEthReserve.value * TOKENS_PER_ETH)
 const poolShare = computed(() => poolGascReserve.value / BASE_GASC)
+const dynamicProduct = computed(() => poolGascReserve.value * sanitizedEthReserve.value)
 
 const buyEth = computed(() => {
 	const price = Number(ethPriceUsd.value)
@@ -127,7 +127,7 @@ const buyEth = computed(() => {
 })
 
 const postEthReserve = computed(() => sanitizedEthReserve.value + buyEth.value)
-const postGascReserve = computed(() => CONSTANT_PRODUCT / postEthReserve.value)
+const postGascReserve = computed(() => dynamicProduct.value / Math.max(postEthReserve.value, 1e-9))
 const tokensPurchased = computed(() => Math.max(poolGascReserve.value - postGascReserve.value, 0))
 
 const currentPriceEth = computed(() => sanitizedEthReserve.value / poolGascReserve.value)
