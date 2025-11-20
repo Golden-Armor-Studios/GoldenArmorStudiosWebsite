@@ -13,6 +13,7 @@ const storageBucket = admin.storage().bucket(STORAGE_BUCKET);
 
 let stripeInstance = null;
 let onChainIssuer = null;
+let chainlinkFeedContract = null;
 const TOKEN_DECIMALS = 18;
 const CONTRACT_ABI = [
 	"function mint(address to, uint256 amount) external",
@@ -20,6 +21,12 @@ const CONTRACT_ABI = [
 	"function totalSupply() view returns (uint256)",
 	"function balanceOf(address account) view returns (uint256)",
 	"function treasury() view returns (address)"
+];
+const CHAINLINK_ETH_USD_FEED = functions.config().pricing?.chainlink_feed
+	?? "0x5f4ec3df9cbd43714fe2740f5e3616155c5b8419";
+const CHAINLINK_FEED_ABI = [
+	"function latestRoundData() view returns (uint80, int256, uint256, uint256, uint80)",
+	"function decimals() view returns (uint8)"
 ];
 
 const PRICING_TOTAL_COINS = Number(functions.config().pricing?.total_coins ?? 1_000_000);
@@ -66,6 +73,22 @@ const getOnChainIssuer = () => {
 	return onChainIssuer;
 };
 
+const getChainlinkFeedContract = () => {
+	if (!CHAINLINK_ETH_USD_FEED) {
+		return null;
+	}
+
+	const issuer = getOnChainIssuer();
+	if (!chainlinkFeedContract) {
+		chainlinkFeedContract = new ethers.Contract(
+			CHAINLINK_ETH_USD_FEED,
+			CHAINLINK_FEED_ABI,
+			issuer.provider
+		);
+	}
+	return chainlinkFeedContract;
+};
+
 const formatTokenUnits = (value, decimals = TOKEN_DECIMALS) => {
 	try {
 		return Number(ethers.formatUnits(value, decimals));
@@ -75,7 +98,7 @@ const formatTokenUnits = (value, decimals = TOKEN_DECIMALS) => {
 	}
 };
 
-const fetchEthPriceUSD = async () => {
+const fetchEthPriceViaHttp = async () => {
 	try {
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort(), 7000);
@@ -94,6 +117,31 @@ const fetchEthPriceUSD = async () => {
 		functions.logger.error("Failed to fetch ETH price", error);
 		throw new functions.https.HttpsError("internal", "Unable to load ETH price.");
 	}
+};
+
+const fetchEthPriceUSD = async () => {
+	const feed = getChainlinkFeedContract();
+	if (feed) {
+		try {
+			const [roundData, decimalsRaw] = await Promise.all([
+				feed.latestRoundData(),
+				feed.decimals()
+			]);
+			const rawAnswer = typeof roundData?.answer !== "undefined"
+				? Number(roundData.answer)
+				: Number(Array.isArray(roundData) ? roundData[1] : NaN);
+			const decimals = Number(decimalsRaw) || 8;
+			const price = rawAnswer / 10 ** decimals;
+			if (!Number.isFinite(price) || price <= 0) {
+				throw new Error("Invalid Chainlink price payload.");
+			}
+			return price;
+		} catch (error) {
+			functions.logger.warn("Chainlink price feed unavailable, falling back to HTTP", error);
+		}
+	}
+
+	return fetchEthPriceViaHttp();
 };
 
 const getTokensPerEther = async () => {

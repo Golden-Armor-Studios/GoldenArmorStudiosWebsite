@@ -27,7 +27,17 @@
 				<h2>Support Future Worlds</h2>
 				<p class="support-text">
 					Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy—fuel development today and position for upside before broader marketplace liquidity arrives.
-			</p>
+				</p>
+				<p class="support-text">
+					<a class="whitepaper-link" href="/What Is GoldenArmorStudioCoin (GASC)?.pdf" target="_blank" rel="noopener noreferrer">
+						Read “What Is GASC?” (PDF overview)
+					</a>
+				</p>
+				<p class="support-text">
+					<a class="whitepaper-link" href="/GoldenArmor Studio NFT.pdf" target="_blank" rel="noopener noreferrer">
+						Read the GoldenArmor Studio NFT Whitepaper (PDF)
+					</a>
+				</p>
 		<div class="price-ticker" :class="priceTrend">
 			<div class="ticker-card">
 				<p class="ticker-label">ETH (USD)</p>
@@ -854,6 +864,12 @@ const fetchDonorProfiles = async () => {
 			color: #d5d7de;
 			max-width: 360px;
 			text-align: center;
+		}
+
+		.whitepaper-link {
+			color: rgb(75, 216, 122);
+			text-decoration: none;
+			font-weight: 600;
 		}
 
 		.price-ticker {
