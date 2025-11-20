@@ -5,15 +5,20 @@
 			<source src="/website background - home.mp4" type="video/mp4">
 		</video>
 			<section class="support card-standard">
-				<div class="support-header">
-					<h1>Support Future Worlds</h1>
-					<button type="button" class="share-button" @click="sharePurchase" aria-label="Share purchase link">
-						Share
-					</button>
-				</div>
-				<p class="support-text">
-					Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy—fuel development today and position for upside before broader marketplace liquidity arrives.
-				</p>
+			<div class="support-header">
+				<h1>Support Future Worlds</h1>
+				<button type="button" class="share-button" @click="sharePurchase" aria-label="Share purchase link">
+					Share
+				</button>
+			</div>
+			<p class="support-text">
+				Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy—fuel development today and position for upside before broader marketplace liquidity arrives.
+			</p>
+			<p class="support-text">
+				<a class="whitepaper-link" href="/GoldenArmor Studio NFT.pdf" target="_blank" rel="noopener noreferrer">
+					Read the GoldenArmor Studio NFT Whitepaper (PDF)
+				</a>
+			</p>
 			<div class="price-ticker" :class="priceTrend">
 				<div class="ticker-card">
 					<p class="ticker-label">ETH (USD)</p>
@@ -550,6 +555,12 @@ onBeforeUnmount(() => {
 
 	.success-message {
 		color: #4bd87a;
+	}
+
+	.whitepaper-link {
+		color: rgb(75, 216, 122);
+		text-decoration: none;
+		font-weight: 600;
 	}
 
 	.share-button {
