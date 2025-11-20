@@ -348,6 +348,72 @@ const sendEmail = async (emailMeta = {}, messageHtml) => {
 
 const allowedGroups = ["member", "subscriber", "donor", "admin", "developer"];
 
+let cachedAdminEmails = null;
+let cachedAdminFetchTime = 0;
+const ADMIN_CACHE_TTL_MS = 5 * 60 * 1000;
+
+const getAdminEmails = async () => {
+	const now = Date.now();
+	if (cachedAdminEmails && now - cachedAdminFetchTime < ADMIN_CACHE_TTL_MS) {
+		return cachedAdminEmails;
+	}
+	const snapshot = await admin.firestore()
+		.collection("users")
+		.where("groups", "array-contains", "admin")
+		.get();
+	const emails = snapshot.docs
+		.map((doc) => {
+			const data = doc.data() || {};
+			return typeof data.email === "string" ? data.email.trim() : "";
+		})
+		.filter(Boolean);
+	cachedAdminEmails = emails;
+	cachedAdminFetchTime = now;
+	return emails;
+};
+
+const notifyAdminsOfPurchaseFailure = async ({
+	errorCode,
+	errorMessage,
+	paymentIntentId,
+	depositAddress,
+	nftAmount,
+	user // { uid, email, displayName }
+} = {}) => {
+	try {
+		const adminEmails = await getAdminEmails();
+		if (!adminEmails.length) {
+			functions.logger.warn("No admin emails configured for NFT purchase failure notifications");
+			return;
+		}
+		const detailItems = [
+			user?.uid ? `<li>User UID: ${user.uid}</li>` : "",
+			user?.email ? `<li>User email: ${user.email}</li>` : "",
+			user?.displayName ? `<li>User name: ${user.displayName}</li>` : "",
+			paymentIntentId ? `<li>Stripe paymentIntentId: ${paymentIntentId}</li>` : "",
+			depositAddress ? `<li>Deposit address: ${depositAddress}</li>` : "",
+			Number.isFinite(Number(nftAmount)) ? `<li>Requested amount: ${nftAmount}</li>` : ""
+		].filter(Boolean);
+		const html = [
+			"<p>An NFT purchase attempt failed.</p>",
+			errorCode ? `<p>Error code: <strong>${errorCode}</strong></p>` : "",
+			errorMessage ? `<p>Message: ${errorMessage}</p>` : "",
+			detailItems.length ? `<ul>${detailItems.join("")}</ul>` : ""
+		].join("");
+
+		await Promise.all(adminEmails.map((email) => sendEmail(
+			{
+				to: email,
+				userName: email.split("@")[0] || "Admin",
+				subject: "Alert: NFT purchase attempt failed"
+			},
+			html
+		)));
+	} catch (notifyError) {
+		functions.logger.warn("Failed to notify admins about purchase failure", notifyError);
+	}
+};
+
 const guessExtensionFromContentType = (contentType = "") => {
  if (typeof contentType !== "string") {
   return "bin";
@@ -876,6 +942,12 @@ exports.recordDonation = functions.https.onCall(async (data, context) => {
 
 	try {
 		const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+		const userRecord = await admin.auth().getUser(context.auth.uid).catch(() => null);
+		const failureUser = {
+			uid: context.auth.uid,
+			email: userRecord?.email || context.auth.token?.email || null,
+			displayName: userRecord?.displayName || userRecord?.providerData?.[0]?.displayName || null
+		};
 		if (!paymentIntent || paymentIntent.status !== "succeeded") {
 			throw new functions.https.HttpsError("failed-precondition", "Payment is not complete.");
 		}
@@ -931,13 +1003,31 @@ exports.purchaseNft = functions.https.onCall(async (data, context) => {
 	try {
 		const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
 		if (!paymentIntent || paymentIntent.status !== "succeeded") {
-			throw new functions.https.HttpsError("failed-precondition", "Payment is not complete.");
+			await notifyAdminsOfPurchaseFailure({
+				errorCode: paymentIntent?.status || "missing_payment_intent",
+				errorMessage: "Payment is not complete.",
+				paymentIntentId,
+				depositAddress: normalizedAddress,
+				nftAmount: parsedNftAmount
+			});
+			const failureError = new functions.https.HttpsError("failed-precondition", "Payment is not complete.");
+			failureError._notifiedAdmins = true;
+			throw failureError;
 		}
 
 		const recordedAmount = Number(paymentIntent.amount_received ?? paymentIntent.amount ?? 0);
 		const recordedCurrency = (paymentIntent.currency || "usd").toLowerCase();
 		if (recordedCurrency !== "usd") {
-			throw new functions.https.HttpsError("failed-precondition", "Unsupported currency for NFT purchases.");
+			await notifyAdminsOfPurchaseFailure({
+				errorCode: "unsupported_currency",
+				errorMessage: `Currency ${recordedCurrency} is not supported.`,
+				paymentIntentId: paymentIntent.id,
+				depositAddress: normalizedAddress,
+				nftAmount: parsedNftAmount
+			});
+			const currencyError = new functions.https.HttpsError("failed-precondition", "Unsupported currency for NFT purchases.");
+			currencyError._notifiedAdmins = true;
+			throw currencyError;
 		}
 
 		const latestQuote = await calculateGascQuote(parsedNftAmount);
@@ -945,7 +1035,16 @@ exports.purchaseNft = functions.https.onCall(async (data, context) => {
 		const expectedAmount = Math.max(Math.round(expectedUsd * 100), 50);
 		const allowedDriftCents = 1;
 		if (!Number.isFinite(expectedUsd) || expectedUsd <= 0) {
-			throw new functions.https.HttpsError("internal", "Unable to verify pricing for this purchase.");
+			await notifyAdminsOfPurchaseFailure({
+				errorCode: "pricing_unavailable",
+				errorMessage: "Unable to verify pricing for this purchase.",
+				paymentIntentId: paymentIntent.id,
+				depositAddress: normalizedAddress,
+				nftAmount: parsedNftAmount
+			});
+			const pricingError = new functions.https.HttpsError("internal", "Unable to verify pricing for this purchase.");
+			pricingError._notifiedAdmins = true;
+			throw pricingError;
 		}
 		if (Math.abs(recordedAmount - expectedAmount) > allowedDriftCents) {
 			functions.logger.warn("Payment total mismatch", {
@@ -956,10 +1055,19 @@ exports.purchaseNft = functions.https.onCall(async (data, context) => {
 				finalPrice: latestQuote.finalPrice,
 				gasFeeUsd: latestQuote.gasFeeUsd
 			});
-			throw new functions.https.HttpsError(
+			await notifyAdminsOfPurchaseFailure({
+				errorCode: "payment_mismatch",
+				errorMessage: "Payment amount no longer matches the current quote.",
+				paymentIntentId: paymentIntent.id,
+				depositAddress: normalizedAddress,
+				nftAmount: parsedNftAmount
+			});
+			const mismatchError = new functions.https.HttpsError(
 				"failed-precondition",
 				"Payment amount no longer matches the current quote. Please refresh pricing and try again."
 			);
+			mismatchError._notifiedAdmins = true;
+			throw mismatchError;
 		}
 
 		const chainTxHash = await issueNftsOnChain(normalizedAddress, parsedNftAmount);
@@ -1037,6 +1145,15 @@ exports.purchaseNft = functions.https.onCall(async (data, context) => {
 		};
 	} catch (error) {
 		functions.logger.error("Failed to process NFT purchase", error);
+		if (!error?._notifiedAdmins) {
+			await notifyAdminsOfPurchaseFailure({
+				errorCode: error?.code || error?.status || "unknown_error",
+				errorMessage: error?.message || String(error),
+				paymentIntentId: typeof paymentIntentId === "string" ? paymentIntentId : null,
+				depositAddress: normalizedAddress,
+				nftAmount: parsedNftAmount
+			});
+		}
 		if (error instanceof functions.https.HttpsError) {
 			throw error;
 		}

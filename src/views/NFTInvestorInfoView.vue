@@ -1,5 +1,6 @@
 <template>
-	<div class="nft-info-wrapper">
+	<div class="nft-info-wrapper" data-page-title="GASC Investor Impact">
+
 		<section class="card-standard intro">
 			<h1>GASC Investor Impact</h1>
 			<p>
@@ -94,7 +95,7 @@
 <script setup>
 import { ref, computed, onMounted, onBeforeUnmount } from 'vue'
 import { httpsCallable } from 'firebase/functions'
-import { functions } from '@/firebase'
+import { functions, analytics } from '@/firebase'
 
 const BASE_GASC = 500_000
 const TOKENS_PER_ETH = 1000
@@ -159,15 +160,38 @@ const poolEthUsdCost = computed(() => {
 	return sanitizedEthReserve.value * price
 })
 
-const priceTrendClass = computed(() => {
-	if (priceTrend.value === 'up') {
-		return 'trend-up'
+const priceTrendClass = computed(() => priceTrend.value)
+
+const mountMeta = () => {
+	if (typeof document === 'undefined') {
+		return
 	}
-	if (priceTrend.value === 'down') {
-		return 'trend-down'
-	}
-	return 'trend-neutral'
-})
+	document.title = 'GASC Investor Impact — Golden Armor Studio'
+	const shareUrl = typeof window !== 'undefined' ? window.location.href : 'https://goldenarmorstudio.art/nft-investor-info'
+	const metaDefinitions = [
+		{ name: 'description', content: 'Model how Golden Armor Studio buybacks influence GASC pricing and liquidity.' },
+		{ property: 'og:title', content: 'GASC Investor Impact' },
+		{ property: 'og:description', content: 'Model how Golden Armor Studio buybacks influence GASC pricing and liquidity.' },
+		{ property: 'og:url', content: shareUrl },
+		{ property: 'og:type', content: 'website' },
+		{ property: 'og:image', content: 'https://goldenarmorstudio.art/Buy-GASC-COver.png' },
+		{ name: 'twitter:card', content: 'summary_large_image' },
+		{ name: 'twitter:title', content: 'GASC Investor Impact' },
+		{ name: 'twitter:description', content: 'Model how Golden Armor Studio buybacks influence GASC pricing and liquidity.' },
+		{ name: 'twitter:image', content: 'https://goldenarmorstudio.art/Buy-GASC-COver.png' }
+	]
+	metaDefinitions.forEach((definition) => {
+		const key = definition.name ? 'name' : 'property'
+		const selector = `meta[${key}="${definition[key]}"]`
+		let tag = document.head.querySelector(selector)
+		if (!tag) {
+			tag = document.createElement('meta')
+			tag.setAttribute(key, definition[key])
+			document.head.appendChild(tag)
+		}
+		tag.setAttribute('content', definition.content)
+	})
+}
 
 const fetchQuote = async () => {
 	if (isFetchingQuote.value) {
@@ -185,7 +209,7 @@ const fetchQuote = async () => {
 			const previous = lastFetchedQuote.value?.ethUsd
 			if (Number.isFinite(parsed.ethUsd) && Number.isFinite(previous)) {
 				if (parsed.ethUsd > previous) {
-					priceTrend.value = 'up'
+					priceTrend.value = 'trend-up'
 				} else if (parsed.ethUsd < previous) {
 					priceTrend.value = 'trend-down'
 				} else {
@@ -207,6 +231,13 @@ const fetchQuote = async () => {
 }
 
 onMounted(() => {
+	mountMeta()
+	if (analytics && typeof analytics.logEvent === 'function') {
+		analytics.logEvent('page_view', {
+			page_location: typeof window !== 'undefined' ? window.location.href : undefined,
+			page_title: 'GASC Investor Impact'
+		})
+	}
 	fetchQuote()
 	quoteIntervalId = setInterval(fetchQuote, 60000)
 })
