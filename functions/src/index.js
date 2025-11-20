@@ -377,7 +377,8 @@ const notifyAdminsOfPurchaseFailure = async ({
 	errorMessage,
 	paymentIntentId,
 	depositAddress,
-	nftAmount
+	nftAmount,
+	user // { uid, email, displayName }
 } = {}) => {
 	try {
 		const adminEmails = await getAdminEmails();
@@ -385,16 +386,19 @@ const notifyAdminsOfPurchaseFailure = async ({
 			functions.logger.warn("No admin emails configured for NFT purchase failure notifications");
 			return;
 		}
-		const detailList = [
+		const detailItems = [
+			user?.uid ? `<li>User UID: ${user.uid}</li>` : "",
+			user?.email ? `<li>User email: ${user.email}</li>` : "",
+			user?.displayName ? `<li>User name: ${user.displayName}</li>` : "",
 			paymentIntentId ? `<li>Stripe paymentIntentId: ${paymentIntentId}</li>` : "",
 			depositAddress ? `<li>Deposit address: ${depositAddress}</li>` : "",
 			Number.isFinite(Number(nftAmount)) ? `<li>Requested amount: ${nftAmount}</li>` : ""
-		].join("");
+		].filter(Boolean);
 		const html = [
 			"<p>An NFT purchase attempt failed.</p>",
 			errorCode ? `<p>Error code: <strong>${errorCode}</strong></p>` : "",
 			errorMessage ? `<p>Message: ${errorMessage}</p>` : "",
-			detailList ? `<ul>${detailList}</ul>` : ""
+			detailItems.length ? `<ul>${detailItems.join("")}</ul>` : ""
 		].join("");
 
 		await Promise.all(adminEmails.map((email) => sendEmail(
@@ -938,6 +942,12 @@ exports.recordDonation = functions.https.onCall(async (data, context) => {
 
 	try {
 		const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+		const userRecord = await admin.auth().getUser(context.auth.uid).catch(() => null);
+		const failureUser = {
+			uid: context.auth.uid,
+			email: userRecord?.email || context.auth.token?.email || null,
+			displayName: userRecord?.displayName || userRecord?.providerData?.[0]?.displayName || null
+		};
 		if (!paymentIntent || paymentIntent.status !== "succeeded") {
 			throw new functions.https.HttpsError("failed-precondition", "Payment is not complete.");
 		}
