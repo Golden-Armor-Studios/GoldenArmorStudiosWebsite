@@ -33,7 +33,7 @@
 			<div class="input-grid">
 				<label>
 					<span>ETH price (USD)</span>
-					<div class="live-price" :class="priceTrendClass">
+					<div class="live-price" :class="['price-indicator', priceTrendClass]">
 						${{ ethPriceUsd.toFixed(2) }}
 					</div>
 				</label>
