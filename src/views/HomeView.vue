@@ -38,6 +38,11 @@
 						Read the GoldenArmor Studio NFT Whitepaper (PDF)
 					</a>
 				</p>
+		<p class="support-text">
+			<a class="whitepaper-link" href="/nft-investor-info">
+				Explore the GASC investor impact calculator
+			</a>
+		</p>
 		<div class="price-ticker" :class="priceTrend">
 			<div class="ticker-card">
 				<p class="ticker-label">ETH (USD)</p>
