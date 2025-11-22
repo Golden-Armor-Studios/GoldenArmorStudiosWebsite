@@ -244,6 +244,7 @@ import { httpsCallable } from 'firebase/functions'
 import { functions } from '@/firebase'
 import { useToast } from 'vue-toastification'
 import { loadStripe } from '@stripe/stripe-js'
+import { trackPurchaseConversion } from '@/utils/analyticsTracking'
 
 const publishableKey = 'pk_live_51SJccOKYzIVp9MDU493vDCMnQbSGmnrhPAa6YXR0PzxoqRs5YX8AWrv8zvAmBHfKBc7tTT6MQKbNDZAIQcA8bgV900hbt7WfPc'
 
@@ -492,6 +493,12 @@ const handlePurchase = async () => {
 				console.error('Failed to finalize NFT purchase', recordError)
 				toast.warning('Payment processed, but delivery could not be confirmed. Contact support with your payment ID.')
 			}
+
+			trackPurchaseConversion({
+				transactionId: paymentIntent.id,
+				valueUsd: gascUsdValue.value,
+				tokens: gascAmount.value
+			})
 
 			purchaseMessage.value = 'Purchase complete! Check your wallet for the incoming NFT.'
 			purchaseError.value = false

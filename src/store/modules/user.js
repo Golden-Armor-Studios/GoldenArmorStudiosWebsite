@@ -1,4 +1,5 @@
 import { auth, functions } from '@/firebase'
+import { trackSignUpConversion } from '@/utils/analyticsTracking'
 import {
 	GithubAuthProvider,
 	onAuthStateChanged,
@@ -134,12 +135,17 @@ const actions = {
 	},
 	async loginWithGithub({ commit }) {
 		const result = await signInWithPopup(auth, githubProvider)
-		const { user } = result
+		const { user, additionalUserInfo } = result
 		const credential = GithubAuthProvider.credentialFromResult(result)
 		const accessToken = credential?.accessToken || null
 		const profile = buildProfile(user)
 		const tokenResult = user?.getIdTokenResult ? await user.getIdTokenResult(true) : null
 		const groups = tokenResult?.claims?.groups || []
+
+		if (additionalUserInfo?.isNewUser) {
+			const method = additionalUserInfo?.providerId || 'github'
+			trackSignUpConversion(method)
+		}
 
 		commit('setSession', user)
 		commit('setProfile', profile)
