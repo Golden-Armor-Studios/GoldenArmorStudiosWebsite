@@ -17,8 +17,11 @@ let onChainIssuer = null;
 let chainlinkFeedContract = null;
 let mailTransporter = null;
 const TOKEN_DECIMALS = 18;
+const COMPANY_TREASURY_ADDRESS = ethers.getAddress("0xfe1C048CC0A079b56C940F107cAe7938EB744ae0");
 const CONTRACT_ABI = [
 	"function mint(address to, uint256 amount) external",
+	"function transfer(address to, uint256 amount) external returns (bool)",
+	"function transferFrom(address from, address to, uint256 amount) external returns (bool)",
 	"function tokensPerEther() view returns (uint256)",
 	"function totalSupply() view returns (uint256)",
 	"function balanceOf(address account) view returns (uint256)",
@@ -32,10 +35,12 @@ const CHAINLINK_FEED_ABI = [
 ];
 
 const PRICING_TOTAL_COINS = Number(functions.config().pricing?.total_coins ?? 1_000_000);
-const PRICING_ADJUSTMENT_K = Number(functions.config().pricing?.adjustment_k ?? 5e-8);
+const MIN_ADJUSTMENT_K = 5e-8;
+const PRICING_ADJUSTMENT_K = Math.max(Number(functions.config().pricing?.adjustment_k ?? MIN_ADJUSTMENT_K), 0);
 const PRICING_GAS_UNITS = Number(functions.config().pricing?.gas_units ?? 120_000);
 const ETH_PRICE_ENDPOINT = functions.config().pricing?.eth_api
 	?? "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd";
+const NFT_TRANSACTIONS_COLLECTION = "nftTransactions";
 
 const getStripeClient = () => {
 	const stripeSecret = functions.config().stripe?.secret;
@@ -215,14 +220,14 @@ const sumNftIssuances = async () => {
 };
 
 const computeAdjustment = (sold, ethPrice) => {
-	if (!Number.isFinite(ethPrice) || ethPrice <= 0) {
+	const normalizedEthPrice = Math.max(Number(ethPrice) || 0, 1);
+	const normalizedSold = Math.max(Math.min(Number(sold) || 0, PRICING_TOTAL_COINS), 0);
+	if (normalizedSold === 0) {
 		return 0;
 	}
-	const ratio = Math.max(Number(sold) || 0, 0) / PRICING_TOTAL_COINS;
-	if (ratio <= 0) {
-		return 0;
-	}
-	return ratio / (PRICING_ADJUSTMENT_K * ethPrice);
+	const ratio = normalizedSold / PRICING_TOTAL_COINS;
+	const effectiveK = Math.max(PRICING_ADJUSTMENT_K, MIN_ADJUSTMENT_K);
+	return ratio / (effectiveK * normalizedEthPrice);
 };
 
 const estimateGasFeeUSD = async (ethUsd, tokenAmount = 1) => {
@@ -361,15 +366,54 @@ const getAdminEmails = async () => {
 		.collection("users")
 		.where("groups", "array-contains", "admin")
 		.get();
-	const emails = snapshot.docs
-		.map((doc) => {
-			const data = doc.data() || {};
-			return typeof data.email === "string" ? data.email.trim() : "";
-		})
-		.filter(Boolean);
-	cachedAdminEmails = emails;
+
+	const emails = [];
+
+	await Promise.all(snapshot.docs.map(async (doc) => {
+		const data = doc.data() || {};
+		let email = typeof data.email === "string" ? data.email.trim() : "";
+		if (!email) {
+			try {
+				const userRecord = await admin.auth().getUser(doc.id);
+				email = userRecord.email || "";
+			} catch (authError) {
+				functions.logger.warn("Unable to resolve admin email from auth record", { uid: doc.id, error: authError?.message || authError });
+			}
+		}
+		if (email) {
+			emails.push(email);
+		}
+	}));
+
+	const uniqueEmails = Array.from(new Set(emails.filter(Boolean)));
+	cachedAdminEmails = uniqueEmails;
 	cachedAdminFetchTime = now;
-	return emails;
+	return uniqueEmails;
+};
+
+const buildNftTransactionsRef = () => admin.firestore().collection(NFT_TRANSACTIONS_COLLECTION);
+
+const createNftTransactionRecord = async (payload = {}) => {
+	const ref = buildNftTransactionsRef().doc();
+	await ref.set({
+		...payload,
+		createdAt: admin.firestore.FieldValue.serverTimestamp(),
+		updatedAt: admin.firestore.FieldValue.serverTimestamp()
+	});
+	return ref;
+};
+
+const updateNftTransactionRecord = async (ref, payload = {}) => {
+	if (!ref) {
+		return;
+	}
+	await ref.set(
+		{
+			...payload,
+			updatedAt: admin.firestore.FieldValue.serverTimestamp()
+		},
+		{merge: true}
+	);
 };
 
 const notifyAdminsOfPurchaseFailure = async ({
@@ -974,8 +1018,40 @@ exports.recordDonation = functions.https.onCall(async (data, context) => {
 
 const issueNftsOnChain = async (recipient, nftAmount) => {
 	const { contract } = getOnChainIssuer();
-	const normalizedAmount = ethers.toBigInt(nftAmount);
-	const tx = await contract.mint(recipient, normalizedAmount);
+	let normalizedRecipient;
+	try {
+		normalizedRecipient = ethers.getAddress(recipient);
+	} catch (error) {
+		throw new functions.https.HttpsError("invalid-argument", "Deposit address is invalid.");
+	}
+	let normalizedAmount;
+	try {
+		const amountInput = typeof nftAmount === "string" ? nftAmount : String(nftAmount);
+		normalizedAmount = ethers.parseUnits(amountInput, TOKEN_DECIMALS);
+	} catch (error) {
+		throw new functions.https.HttpsError("invalid-argument", "Invalid NFT amount.");
+	}
+
+	let signerAddress = null;
+	if (contract.runner && typeof contract.runner.getAddress === "function") {
+		signerAddress = await contract.runner.getAddress();
+	} else if (contract.signer && typeof contract.signer.getAddress === "function") {
+		signerAddress = await contract.signer.getAddress();
+	}
+
+	if (!signerAddress) {
+		throw new functions.https.HttpsError("failed-precondition", "Unable to determine treasury signer.");
+	}
+
+	if (signerAddress.toLowerCase() !== COMPANY_TREASURY_ADDRESS.toLowerCase()) {
+		functions.logger.error("On-chain signer does not match treasury address", {
+			signerAddress,
+			expectedTreasury: COMPANY_TREASURY_ADDRESS
+		});
+		throw new functions.https.HttpsError("failed-precondition", "Treasury signer misconfigured.");
+	}
+
+	const tx = await contract.transfer(normalizedRecipient, normalizedAmount);
 	const receipt = await tx.wait();
 	return receipt?.hash || tx.hash;
 };
@@ -999,6 +1075,9 @@ exports.purchaseNft = functions.https.onCall(async (data, context) => {
 	if (!Number.isFinite(parsedNftAmount) || parsedNftAmount <= 0) {
 		throw new functions.https.HttpsError("invalid-argument", "A positive nftAmount is required.");
 	}
+
+	let nftTxnRef = null;
+	let adminUserRecordPromise = null;
 
 	try {
 		const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
@@ -1030,10 +1109,37 @@ exports.purchaseNft = functions.https.onCall(async (data, context) => {
 			throw currencyError;
 		}
 
+		adminUserRecordPromise = admin.auth().getUser(context.auth.uid).catch(() => null);
+
+		try {
+			nftTxnRef = await createNftTransactionRecord({
+				uid: context.auth.uid,
+				userEmail: context.auth.token?.email || null,
+				paymentIntentId: paymentIntent.id,
+				stripeStatus: paymentIntent.status,
+				stripeAmount: recordedAmount,
+				amount: recordedAmount,
+				stripeCurrency: recordedCurrency,
+				currency: recordedCurrency,
+				nftAmount: parsedNftAmount,
+				depositAddress: normalizedAddress,
+				status: "pending",
+				chainStatus: "pending"
+			});
+		} catch (txError) {
+			functions.logger.warn("Failed to seed NFT transaction record", txError);
+		}
+
 		const latestQuote = await calculateGascQuote(parsedNftAmount);
+		await updateNftTransactionRecord(nftTxnRef, {
+			quoteFinalPrice: Number(latestQuote.finalPrice) || null,
+			quoteGasFeeUsd: Number(latestQuote.gasFeeUsd) || null,
+			quoteEthUsd: Number(latestQuote.ethUsd) || null,
+			quoteAdjustment: Number(latestQuote.adjustment) || null
+		});
 		const expectedUsd = (Number(latestQuote.finalPrice) || 0) * parsedNftAmount + (Number(latestQuote.gasFeeUsd) || 0);
 		const expectedAmount = Math.max(Math.round(expectedUsd * 100), 50);
-		const allowedDriftCents = 1;
+		const allowedDriftCents = 100;
 		if (!Number.isFinite(expectedUsd) || expectedUsd <= 0) {
 			await notifyAdminsOfPurchaseFailure({
 				errorCode: "pricing_unavailable",
@@ -1041,6 +1147,12 @@ exports.purchaseNft = functions.https.onCall(async (data, context) => {
 				paymentIntentId: paymentIntent.id,
 				depositAddress: normalizedAddress,
 				nftAmount: parsedNftAmount
+			});
+			await updateNftTransactionRecord(nftTxnRef, {
+				status: "failed",
+				chainStatus: "pending",
+				failureCode: "pricing_unavailable",
+				failureMessage: "Unable to verify pricing for this purchase."
 			});
 			const pricingError = new functions.https.HttpsError("internal", "Unable to verify pricing for this purchase.");
 			pricingError._notifiedAdmins = true;
@@ -1062,6 +1174,12 @@ exports.purchaseNft = functions.https.onCall(async (data, context) => {
 				depositAddress: normalizedAddress,
 				nftAmount: parsedNftAmount
 			});
+			await updateNftTransactionRecord(nftTxnRef, {
+				status: "failed",
+				chainStatus: "pending",
+				failureCode: "payment_mismatch",
+				failureMessage: "Payment amount no longer matches the current quote."
+			});
 			const mismatchError = new functions.https.HttpsError(
 				"failed-precondition",
 				"Payment amount no longer matches the current quote. Please refresh pricing and try again."
@@ -1071,6 +1189,12 @@ exports.purchaseNft = functions.https.onCall(async (data, context) => {
 		}
 
 		const chainTxHash = await issueNftsOnChain(normalizedAddress, parsedNftAmount);
+		await updateNftTransactionRecord(nftTxnRef, {
+			status: "paid",
+			stripeStatus: paymentIntent.status,
+			chainStatus: "confirmed",
+			chainTxHash
+		});
 
 		await updateUserTransactions(
 			context.auth.uid,
@@ -1102,7 +1226,7 @@ exports.purchaseNft = functions.https.onCall(async (data, context) => {
 		});
 
 		try {
-			const userRecord = await admin.auth().getUser(context.auth.uid);
+			const userRecord = await (adminUserRecordPromise || admin.auth().getUser(context.auth.uid).catch(() => null));
 			const recipientEmail = userRecord.email || context.auth.token?.email || null;
 			if (recipientEmail) {
 				const displayName = userRecord.displayName || recipientEmail.split("@")[0] || "there";
@@ -1145,6 +1269,16 @@ exports.purchaseNft = functions.https.onCall(async (data, context) => {
 		};
 	} catch (error) {
 		functions.logger.error("Failed to process NFT purchase", error);
+		try {
+			await updateNftTransactionRecord(nftTxnRef, {
+				status: "failed",
+				chainStatus: "failed",
+				failureCode: error?.code || error?.status || "unknown_error",
+				failureMessage: error?.message || String(error)
+			});
+		} catch (updateError) {
+			functions.logger.warn("Failed to mark NFT transaction failure", updateError);
+		}
 		if (!error?._notifiedAdmins) {
 			await notifyAdminsOfPurchaseFailure({
 				errorCode: error?.code || error?.status || "unknown_error",
@@ -1216,6 +1350,57 @@ exports.getUserTransactions = functions.https.onCall(async (data, context) => {
 	} catch (error) {
 		functions.logger.error("Failed to fetch user transactions", error);
 		throw new functions.https.HttpsError("internal", "Unable to load transactions.");
+	}
+});
+
+exports.listNftTransactions = functions.https.onCall(async (data = {}, context) => {
+	ensureAdmin(context);
+
+	const limit = Math.min(Math.max(Number(data.limit) || 200, 1), 1000);
+
+	try {
+		const snapshot = await buildNftTransactionsRef()
+			.orderBy("createdAt", "desc")
+			.limit(limit)
+			.get();
+
+		const transactions = snapshot.docs.map((doc) => {
+			const record = doc.data() || {};
+			const rawCreatedAt = record.createdAt || null;
+			let createdAtMs = null;
+			if (rawCreatedAt?.toMillis) {
+				createdAtMs = rawCreatedAt.toMillis();
+			} else if (typeof rawCreatedAt === "number") {
+				createdAtMs = rawCreatedAt;
+			} else if (rawCreatedAt && typeof rawCreatedAt === "object" && typeof rawCreatedAt._seconds === "number") {
+				createdAtMs = rawCreatedAt._seconds * 1000 + Math.floor((rawCreatedAt._nanoseconds || 0) / 1e6);
+			}
+
+			return {
+				id: doc.id,
+				uid: record.uid || null,
+				paymentIntentId: record.paymentIntentId || null,
+				nftAmount: Number(record.nftAmount) || 0,
+				amount: Number(record.amount || record.stripeAmount) || 0,
+				currency: (record.currency || record.stripeCurrency || "usd").toLowerCase(),
+				depositAddress: record.depositAddress || null,
+				chainTxHash: record.chainTxHash || null,
+				status: record.status || (record.chainTxHash ? "paid" : "pending"),
+				stripeStatus: record.stripeStatus || null,
+				chainStatus: record.chainStatus || null,
+				userEmail: record.userEmail || null,
+				failureCode: record.failureCode || null,
+				failureMessage: record.failureMessage || null,
+				createdAt: serializeTimestamp(rawCreatedAt),
+				createdAtMs,
+				notes: record.note || record.notes || null
+			};
+		});
+
+		return {transactions};
+	} catch (error) {
+		functions.logger.error("Failed to list NFT transactions", error);
+		throw new functions.https.HttpsError("internal", "Unable to load NFT transactions.");
 	}
 });
 
