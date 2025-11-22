@@ -314,6 +314,8 @@ onBeforeUnmount(() => {
 	padding: 2rem 1rem 4rem;
 	display: flex;
 	justify-content: center;
+	width: 100%;
+	overflow-x: hidden;
 }
 
 .background-video {
@@ -331,6 +333,8 @@ onBeforeUnmount(() => {
 	margin: 0 auto;
 	position: relative;
 	z-index: 1;
+	padding: 20px;
+	box-sizing: border-box;
 }
 
 .header {
@@ -448,6 +452,21 @@ onBeforeUnmount(() => {
 	border-radius: 16px;
 	width: 100%;
 	background: rgba(6, 10, 18, 0.6);
+	-webkit-overflow-scrolling: touch;
+}
+
+.table-scroll::-webkit-scrollbar {
+	height: 10px;
+}
+
+.table-scroll::-webkit-scrollbar-thumb {
+	background: rgba(75, 216, 122, 0.6);
+	border-radius: 999px;
+}
+
+.table-scroll::-webkit-scrollbar-track {
+	background: rgba(255, 255, 255, 0.08);
+	border-radius: 999px;
 }
 
 .nft-table {
@@ -490,6 +509,7 @@ onBeforeUnmount(() => {
 	flex-direction: column;
 	gap: 0.2rem;
 	font-size: 0.9rem;
+	height: 125px;
 }
 
 .buyer-email {
@@ -540,6 +560,36 @@ onBeforeUnmount(() => {
 	text-align: center;
 	padding: 2rem 1rem;
 	color: rgba(255, 255, 255, 0.7);
+}
+
+@media (max-width: 768px) {
+	.nft-admin-wrapper {
+		padding: 1.5rem 0.75rem 3rem;
+	}
+
+	.admin-card {
+		padding: 16px 10px;
+		width: 95vw !important;
+	}
+
+	.table-scroll {
+		margin: 0 -0.5rem;
+		border-radius: 12px;
+	}
+
+	.nft-table {
+		min-width: 720px;
+	}
+
+	.header h1 {
+		font-size: 1.9rem;
+	}
+
+	.status-pills {
+		justify-content: flex-start;
+		overflow-x: auto;
+		padding-bottom: 0.5rem;
+	}
 }
 
 @media (max-width: 768px) {

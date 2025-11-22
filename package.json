@@ -29,6 +29,7 @@
     "@vue/compiler-sfc": "^3.5.22",
     "eslint": "^8.57.1",
     "eslint-plugin-vue": "^9.24.1",
+    "ethers": "^5.8.0",
     "firebase-tools": "^14.20.0"
   },
   "eslintConfig": {

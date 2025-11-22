@@ -39,6 +39,10 @@
         "function": "listUsers"
       },
       {
+        "source": "/listNftTransactions",
+        "function": "listNftTransactions"
+      },
+      {
         "source": "/updateUserGroups",
         "function": "updateUserGroups"
       },

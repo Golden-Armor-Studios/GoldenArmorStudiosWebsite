@@ -12,9 +12,11 @@ import ColorIqOverviewView from '../views/ColorIqOverviewView.vue'
 import DiscordInviteView from '../views/DiscordInviteView.vue'
 import JoinTeamView from '../views/JoinTeamView.vue'
 import DevsView from '../views/DevsView.vue'
+import UsersView from '../views/UsersView.vue'
 import NotFoundView from '../views/NotFoundView.vue'
 import DashboardView from '../views/DashboardView.vue'
 import NFTInvestorInfoView from '../views/NFTInvestorInfoView.vue'
+import NftTransactionsView from '../views/NftTransactionsView.vue'
 import store from '../store'
 
 const routes = [
@@ -78,6 +80,15 @@ const routes = [
     }
   },
   {
+    path: '/admin/users',
+    name: 'Users',
+    component: UsersView,
+    meta: {
+      requiresAuth: true,
+      requiresGroup: 'admin'
+    }
+  },
+  {
     path: '/dev-tools',
     alias: '/developer-news',
     name: 'DevTools',
@@ -132,6 +143,15 @@ const routes = [
     alias: '/app/nft-investor-info',
     name: 'NFTInvestorInfo',
     component: NFTInvestorInfoView
+  },
+  {
+    path: '/admin/nft-transactions',
+    name: 'AdminNftTransactions',
+    component: NftTransactionsView,
+    meta: {
+      requiresAuth: true,
+      requiresGroup: 'admin'
+    }
   },
   {
     path: '/app/news/:id',

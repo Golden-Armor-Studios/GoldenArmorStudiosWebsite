@@ -23,7 +23,29 @@
 			</div>
 		</section>
 
-			<section id="support" class="support card-standard">
+		<section class="pool-card card-standard">
+			<div class="pool-header">
+				<p class="eyebrow">Uniswap Liquidity Launch</p>
+				<h2>Progress Toward Our First 50 ETH Pool</h2>
+				<p class="intro">
+					We’re lining up the initial liquidity pool on
+					<a class="whitepaper-link" href="https://app.uniswap.org/" target="_blank" rel="noopener noreferrer">Uniswap</a>.
+					Here’s the live view of how close the community is to the 50&nbsp;ETH target for launch.
+				</p>
+			</div>
+			<div class="pool-progress">
+				<div class="progress-bar">
+					<div class="progress-fill" :style="{ width: `${poolProgressPercent}%` }"></div>
+				</div>
+				<div class="progress-meta">
+					<span>{{ soldGascDisplay }} issued</span>
+					<span class="goal-label">{{ poolGoalLabel }}</span>
+				</div>
+				<p class="progress-sub">{{ totalSoldDisplay }}</p>
+			</div>
+		</section>
+
+		<section id="support" class="support card-standard">
 				<h2>Support Future Worlds</h2>
 				<p class="support-text">
 					Every GASC purchase bankrolls fresh prototypes while giving you early exposure to the studio’s on-chain economy—fuel development today and position for upside before broader marketplace liquidity arrives.
@@ -207,7 +229,7 @@
 			</p>
 			<div class="cta-actions">
 				<a class="primary-button" href="https://discord.gg" target="_blank" rel="noopener noreferrer">Join our Discord</a>
-				<a class="secondary-button" href="mailto:hello@goldenarmorstudio.com">Contact the Studio</a>
+				<a class="secondary-button" href="mailto:app@goldenarmorstudio.art">Contact the Studio</a>
 			</div>
 		</section>
 
@@ -233,6 +255,7 @@ const gascQuote = ref({ ethUsd: null, tokensPerEther: 1000, basePrice: null, adj
 const lastFinalPrice = ref(null)
 const lastUsdTotal = ref(null)
 const priceIntervalId = ref(null)
+const POOL_TARGET_ETH = 50
 
 const gascAmount = ref(100)
 const depositAddress = ref('')
@@ -264,6 +287,35 @@ const gascUsdValue = computed(() => {
 const ethPriceDisplay = computed(() => gascQuote.value.ethUsd == null ? '—' : `$${gascQuote.value.ethUsd.toFixed(2)}`)
 const gascPriceDisplay = computed(() => gascQuote.value.finalPrice == null ? '—' : `$${gascQuote.value.finalPrice.toFixed(4)}`)
 const gascUsdDisplay = computed(() => gascUsdValue.value == null ? '$0.00' : `$${gascUsdValue.value.toFixed(2)}`)
+const tokensPerEth = computed(() => Number(gascQuote.value.tokensPerEther) || 0)
+const totalSoldTokens = computed(() => Number(gascQuote.value.totalSold) || 0)
+const targetTokens = computed(() => {
+	if (!tokensPerEth.value) {
+		return 0
+	}
+	return tokensPerEth.value * POOL_TARGET_ETH
+})
+const soldGascDisplay = computed(() => `${formatTokenCount(totalSoldTokens.value)} GASC`)
+const poolProgressPercent = computed(() => {
+	if (!targetTokens.value) return 0
+	return Math.min((totalSoldTokens.value / targetTokens.value) * 100, 100)
+})
+const poolGoalLabel = computed(() => {
+	if (!targetTokens.value) {
+		return 'Goal pending live rate'
+	}
+	if (poolProgressPercent.value >= 100) {
+		return 'Goal met'
+	}
+	const remaining = Math.max(targetTokens.value - totalSoldTokens.value, 0)
+	return `${formatTokenCount(remaining)} GASC to goal`
+})
+const totalSoldDisplay = computed(() => {
+	if (!targetTokens.value) {
+		return `${formatTokenCount(totalSoldTokens.value)} GASC sold toward launch.`
+	}
+	return `${formatTokenCount(totalSoldTokens.value)} / ${formatTokenCount(targetTokens.value)} GASC (~50 ETH).`
+})
 const priceTrend = computed(() => {
 	if (gascQuote.value.finalPrice == null || lastFinalPrice.value == null) {
 		return 'neutral'
@@ -364,6 +416,9 @@ onBeforeUnmount(() => {
 		cardElement.destroy()
 	}
 	cardReady.value = false
+	if (priceIntervalId.value) {
+		clearInterval(priceIntervalId.value)
+	}
 })
 
 const resetPurchaseMessage = () => {
@@ -479,6 +534,15 @@ const mapMemberProfile = (profile) => {
 	}
 }
 
+const formatTokenCount = (value) => {
+	if (!Number.isFinite(value)) {
+		return '0'
+	}
+	return value.toLocaleString(undefined, {
+		maximumFractionDigits: 2
+	})
+}
+
 const fetchDeveloperProfiles = async () => {
 	try {
 		const callable = httpsCallable(functions, 'getDeveloperProfiles')
@@ -545,13 +609,83 @@ const fetchDonorProfiles = async () => {
 		justify-content: center;
 	}
 
-	.hero-content {
-		flex: 1 1 320px;
-		display: flex;
-		flex-direction: column;
-		gap: 1.5rem;
-		text-align: left;
+.hero-content {
+	flex: 1 1 320px;
+	display: flex;
+	flex-direction: column;
+	gap: 1.5rem;
+	text-align: left;
+}
+
+.pool-card {
+	display: flex;
+	flex-direction: column;
+	gap: 1rem;
+	text-align: center;
+	width: 100%;
+	padding: 20px;
+}
+
+.pool-header .intro {
+	margin-top: 0.25rem;
+}
+
+.pool-progress {
+	display: flex;
+	flex-direction: column;
+	gap: 0.5rem;
+}
+
+.progress-bar {
+	position: relative;
+	height: 20px;
+	border-radius: 999px;
+	background: rgba(255, 255, 255, 0.15);
+	overflow: hidden;
+}
+
+@keyframes flowPulse {
+	0% {
+		opacity: 0.7;
 	}
+	50% {
+		opacity: 1;
+	}
+	100% {
+		opacity: 0.7;
+	}
+}
+
+.progress-fill {
+	position: absolute;
+	top: 0;
+	left: 0;
+	bottom: 0;
+	background: linear-gradient(120deg, #4bd87a, #7ef4a7, #4bd87a);
+	background-size: 200% 200%;
+	border-radius: 999px;
+	width: 0%;
+	min-width: 5%;
+	transition: width 0.8s ease;
+	animation: flowPulse 2.2s ease-in-out infinite;
+}
+
+.progress-meta {
+	display: flex;
+	justify-content: space-between;
+	font-weight: 600;
+	font-size: 0.95rem;
+}
+
+.goal-label {
+	color: rgba(255, 255, 255, 0.7);
+}
+
+.progress-sub {
+	margin: 0;
+	font-size: 0.85rem;
+	color: rgba(255, 255, 255, 0.7);
+}
 
 	.studio-tag {
 		margin: 0;

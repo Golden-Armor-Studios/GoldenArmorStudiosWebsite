@@ -219,6 +219,46 @@ const sumNftIssuances = async () => {
 	return total;
 };
 
+const loadUserPurchaseStats = async () => {
+	const stats = new Map();
+	const snapshot = await admin.firestore().collection(NFT_TRANSACTIONS_COLLECTION).orderBy("createdAt", "desc").get();
+	snapshot.forEach((doc) => {
+		const data = doc.data() || {};
+		const uid = data.uid;
+		if (!uid) {
+			return;
+		}
+		const status = String(data.status || "").toLowerCase();
+		if (status !== "paid") {
+			return;
+		}
+
+		const nftAmount = Number(data.nftAmount) || 0;
+		const usdCents = Number(data.amount ?? data.stripeAmount ?? 0);
+		const ethUsd = Number(data.quoteEthUsd ?? data.ethUsd ?? 0);
+
+		const entry = stats.get(uid) || { tokens: 0, usd: 0, eth: 0, transactions: [] };
+		entry.tokens += nftAmount;
+		entry.usd += usdCents / 100;
+		if (ethUsd > 0 && usdCents > 0) {
+			entry.eth += (usdCents / 100) / ethUsd;
+		}
+
+		entry.transactions.push({
+			paymentIntentId: data.paymentIntentId || null,
+			status: data.status || data.chainStatus || data.stripeStatus || "unknown",
+			nftAmount,
+			usdAmount: usdCents / 100,
+			ethUsd,
+			chainTxHash: data.chainTxHash || null,
+			createdAt: serializeTimestamp(data.createdAt) || null
+		});
+
+		stats.set(uid, entry);
+	});
+	return stats;
+};
+
 const computeAdjustment = (sold, ethPrice) => {
 	const normalizedEthPrice = Math.max(Number(ethPrice) || 0, 1);
 	const normalizedSold = Math.max(Math.min(Number(sold) || 0, PRICING_TOTAL_COINS), 0);
@@ -1432,6 +1472,8 @@ exports.listUsers = functions.https.onCall(async (data, context) => {
 		throw new functions.https.HttpsError("internal", "Unable to load users.");
 	}
 
+	const purchaseStats = await loadUserPurchaseStats();
+
 	const users = await Promise.all(snapshot.docs.map(async (doc) => {
 		const data = doc.data() || {};
 		const userRecord = {
@@ -1440,7 +1482,10 @@ exports.listUsers = functions.https.onCall(async (data, context) => {
 			email: data.email || null,
 			groups: Array.isArray(data.groups) ? data.groups : [],
 			isApplying: Boolean(data.isApplying),
-			createdAt: serializeTimestamp(data.createdAt)
+			createdAt: serializeTimestamp(data.createdAt),
+			tokensPurchased: 0,
+			usdSpent: 0,
+			ethSpent: 0
 		};
 
 		if (data.application && typeof data.application === "object") {
@@ -1450,6 +1495,16 @@ exports.listUsers = functions.https.onCall(async (data, context) => {
 			};
 		} else {
 			userRecord.application = null;
+		}
+
+		const stat = purchaseStats.get(doc.id);
+		if (stat) {
+			userRecord.tokensPurchased = Number(stat.tokens.toFixed(6));
+			userRecord.usdSpent = Number(stat.usd.toFixed(2));
+			userRecord.ethSpent = Number(stat.eth.toFixed(6));
+			userRecord.transactions = stat.transactions || [];
+		} else {
+			userRecord.transactions = [];
 		}
 
 		return userRecord;

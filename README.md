@@ -68,6 +68,6 @@ Fans can donate directly through the site. Payments are processed with Stripe an
 - Website: [goldenarmorstudio.art](https://goldenarmorstudio.art)
 - GitHub: [Golden Armor Studios](https://github.com/Golden-Armor-Studios)
 - Discord: [Join the guild conversation](https://discord.gg/cTDGryK7)
-- Email: [hello@goldenarmorstudio.com](mailto:hello@goldenarmorstudio.com)
+- Email: [app@goldenarmorstudio.art](mailto:app@goldenarmorstudio.art)
 
 Thanks for exploring Golden Armor Studios. Suit up, bring your imagination, and help us build the next adventure.

@@ -45,42 +45,73 @@
 			</p>
 		</div>
 
-		<ul v-else class="user-grid">
-			<li
-				v-for="user in users"
-				:key="user.uid"
-				class="user-card card-standard"
+		<div v-else class="devs-table-card card-standard">
+			<div
+				class="devs-table-scroll"
+				ref="tableScrollRef"
+				@mousedown="startDrag"
+				@mousemove="handleDrag"
+				@mouseleave="stopDrag"
+				@mouseup="stopDrag"
 			>
-				<div class="user-card-header">
-					<h2 class="user-name">{{ user.displayName }}</h2>
-					<span v-if="user.isApplying" class="applicant-pill">Applicant</span>
-				</div>
-				<p class="user-meta" v-if="user.email && user.email !== user.displayName">
-					Email: {{ user.email }}
-				</p>
-				<p class="user-meta" v-if="user.uid !== user.displayName">
-					UID: {{ user.uid }}
-				</p>
-				<p class="user-groups">
-					Groups:
-					<span v-if="user.groups.length">
-						{{ user.groups.join(', ') }}
-					</span>
-					<em v-else>none</em>
-				</p>
-				<p v-if="user.application?.developerType" class="user-detail">
-					Applied as {{ user.application.developerType }} • {{ user.application.experience }} yrs
-				</p>
-				<p v-if="user.application?.about" class="user-about">
-					{{ user.application.about }}
-				</p>
-				<div class="card-actions">
-					<button type="button" class="small-button" @click="selectUser(user)">
-						Manage
-					</button>
-				</div>
-			</li>
-		</ul>
+				<table class="devs-table">
+					<colgroup>
+						<col class="col-status">
+						<col class="col-name">
+						<col class="col-email">
+						<col class="col-uid">
+						<col class="col-groups">
+						<col class="col-details">
+						<col class="col-actions">
+					</colgroup>
+					<thead>
+						<tr>
+							<th>Status</th>
+							<th>Name</th>
+							<th>Email</th>
+							<th>UID</th>
+							<th>Groups</th>
+							<th>Details</th>
+							<th>Actions</th>
+						</tr>
+					</thead>
+					<tbody>
+						<tr v-for="user in users" :key="user.uid">
+							<td>
+								<span class="dev-status" :class="user.isApplying ? 'applicant' : 'active'">
+									{{ user.isApplying ? 'Applicant' : 'Active' }}
+								</span>
+							</td>
+							<td class="devs-name-cell">
+								<strong>{{ user.displayName }}</strong>
+							</td>
+							<td class="devs-email" :title="user.email || '—'">{{ user.email || '—' }}</td>
+							<td class="mono">{{ user.uid }}</td>
+							<td>
+								<span v-if="user.groups.length">{{ user.groups.join(', ') }}</span>
+								<em v-else>none</em>
+							</td>
+							<td>
+								<div class="devs-detail" v-if="user.application?.developerType">
+									Role: {{ user.application.developerType }}
+								</div>
+								<div class="devs-detail" v-if="user.application?.experience !== undefined">
+									Exp: {{ user.application.experience }} yrs
+								</div>
+								<div class="devs-detail" v-if="user.application?.about">
+									{{ user.application.about }}
+								</div>
+							</td>
+							<td class="devs-actions">
+								<button type="button" class="small-button" @click="selectUser(user)">
+									Manage
+								</button>
+							</td>
+						</tr>
+					</tbody>
+				</table>
+			</div>
+		</div>
 
 		<div v-if="selectedUser" class="modal-overlay" @click.self="closeEditor">
 			<div class="modal-container" role="dialog" aria-modal="true">
@@ -189,6 +220,10 @@
 	const isApplicantsMode = ref(false)
 	const errorMessage = ref('')
 	const successMessage = ref('')
+	const tableScrollRef = ref(null)
+	const isDragging = ref(false)
+	let dragStartX = 0
+	let scrollStart = 0
 
 	const selectedUser = ref(null)
 	const editableGroups = ref([])
@@ -339,6 +374,29 @@
 		return selectedUser.value?.isApplying && group === 'member' && editableGroups.value.length === 1
 	}
 
+	const startDrag = (event) => {
+		const target = event.currentTarget
+		if (!target) return
+		isDragging.value = true
+		dragStartX = event.clientX
+		scrollStart = target.scrollLeft
+		target.classList.add('dragging')
+	}
+
+	const handleDrag = (event) => {
+		const target = event.currentTarget
+		if (!isDragging.value || !target) return
+		const dx = event.clientX - dragStartX
+		target.scrollLeft = scrollStart - dx
+	}
+
+	const stopDrag = (event) => {
+		const target = event?.currentTarget || tableScrollRef.value
+		if (!target) return
+		isDragging.value = false
+		target.classList.remove('dragging')
+	}
+
 	onMounted(fetchUsers)
 </script>
 
@@ -393,61 +451,184 @@
 		border-radius: 20px;
 	}
 
-	.user-grid {
-		list-style: none;
+	.devs-table-card {
+		width: 100%;
 		padding: 0;
-		margin: 0;
-		display: grid;
-		grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-		gap: 1.25rem;
 	}
 
-	.user-card {
-		border-radius: 20px;
-		padding: 1.25rem;
-		display: flex;
-		flex-direction: column;
-		gap: 0.6rem;
+	.devs-table-scroll {
+		width: 100%;
+		border-radius: 18px;
+		border: 1px solid rgba(255, 255, 255, 0.12);
+		background: rgba(6, 10, 18, 0.7);
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
+		cursor: grab;
 	}
 
-	.user-card-header {
-		display: flex;
-		align-items: center;
-		gap: 0.5rem;
+	.devs-table-scroll.dragging {
+		cursor: grabbing;
 	}
 
-	.user-name {
-		margin: 0;
-		color: #f6f7f9;
-		font-size: 1.2rem;
+	.devs-table-scroll::-webkit-scrollbar {
+		height: 10px;
 	}
 
-	.applicant-pill {
-		background: rgba(255, 215, 0, 0.2);
-		color: #ffd700;
+	.devs-table-scroll::-webkit-scrollbar-thumb {
+		background: linear-gradient(90deg, #34c670, #7ef0a4);
 		border-radius: 999px;
+	}
+
+	.devs-table-scroll::-webkit-scrollbar-track {
+		background: rgba(255, 255, 255, 0.08);
+		border-radius: 999px;
+	}
+
+.devs-table {
+	width: 100%;
+	min-width: 1100px;
+	border-collapse: collapse;
+}
+
+.devs-table th:nth-child(1),
+.devs-table td:nth-child(1) {
+	width: 110px;
+}
+
+.devs-table th:nth-child(2),
+.devs-table td:nth-child(2) {
+	width: 200px;
+}
+
+.devs-table th:nth-child(3),
+.devs-table td:nth-child(3) {
+	width: 220px;
+}
+
+.devs-table th:nth-child(4),
+.devs-table td:nth-child(4) {
+	width: 260px;
+}
+
+.devs-table th:nth-child(5),
+.devs-table td:nth-child(5) {
+	width: 200px;
+}
+
+.devs-table th:nth-child(6),
+.devs-table td:nth-child(6) {
+	width: 280px;
+}
+
+.devs-table th:nth-child(7),
+.devs-table td:nth-child(7) {
+	width: 140px;
+}
+
+.devs-table th,
+.devs-table td {
+	padding: 0.85rem 1rem;
+	text-align: left;
+	border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+	}
+
+	.devs-table thead th {
+		text-transform: uppercase;
+		letter-spacing: 0.05em;
+		font-size: 0.8rem;
+		color: rgba(255, 255, 255, 0.75);
+		background: rgba(5, 8, 12, 0.9);
+		position: sticky;
+		top: 0;
+		z-index: 1;
+	}
+
+.devs-table tbody tr:nth-child(even) {
+	background: rgba(255, 255, 255, 0.02);
+}
+
+.col-status {
+	width: 110px;
+}
+
+.col-name {
+	width: 200px;
+}
+
+.col-email {
+	width: 260px;
+}
+
+.col-uid {
+	width: 320px;
+}
+
+.col-groups {
+	width: 220px;
+}
+
+.col-details {
+	width: 320px;
+}
+
+.col-actions {
+	width: 140px;
+}
+
+	.dev-status {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		min-width: 90px;
 		padding: 0.25rem 0.6rem;
-		font-size: 0.75rem;
+		border-radius: 999px;
 		font-weight: 600;
+		font-size: 0.8rem;
+		text-transform: capitalize;
 	}
 
-	.user-meta,
-	.user-groups,
-	.user-detail {
-		color: #b9bcc3;
-		margin: 0;
-		font-size: 0.85rem;
+	.dev-status.active {
+		background: rgba(75, 216, 122, 0.18);
+		color: #4bd87a;
+		border: 1px solid rgba(75, 216, 122, 0.5);
 	}
 
-	.user-about {
-		color: #e0e3ea;
-		font-size: 0.9rem;
-		line-height: 1.5;
+	.dev-status.applicant {
+		background: rgba(255, 193, 7, 0.2);
+		color: #ffc107;
+		border: 1px solid rgba(255, 193, 7, 0.45);
 	}
 
-	.card-actions {
-		display: flex;
-		justify-content: flex-end;
+	.devs-name-cell strong {
+		color: #f6f7f9;
+	}
+
+.devs-email {
+	font-family: 'Roboto Mono', 'SFMono-Regular', Menlo, monospace;
+	font-size: 0.85rem;
+	color: #f6f7f9;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+.devs-uid,
+.mono {
+	font-family: 'Roboto Mono', 'SFMono-Regular', Menlo, monospace;
+	font-size: 0.85rem;
+	color: #c1c3c9;
+	white-space: nowrap;
+	overflow: hidden;
+	text-overflow: ellipsis;
+}
+
+	.devs-detail {
+		font-size: 0.82rem;
+		color: rgba(255, 255, 255, 0.75);
+	}
+
+	.devs-actions {
+		text-align: right;
 	}
 
 	.small-button {
@@ -608,8 +789,17 @@
 	}
 
 	@media (max-width: 720px) {
-		.user-grid {
-			grid-template-columns: 1fr;
+		.devs-table-card {
+			width: 95vw !important;
+		}
+
+		.devs-table-scroll {
+			margin: 0 -0.5rem;
+			border-radius: 12px;
+		}
+
+		.devs-table {
+			min-width: 720px;
 		}
 
 		.editor-actions {

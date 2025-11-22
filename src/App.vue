@@ -131,6 +131,8 @@
 			class="dropdown-menu"
 		>
 			<RouterLink class="dropdown-link" to="/devs" @click="closeNavAndAdmin">Team Admin</RouterLink>
+			<RouterLink class="dropdown-link" to="/admin/users" @click="closeNavAndAdmin">Users</RouterLink>
+			<RouterLink class="dropdown-link" to="/admin/nft-transactions" @click="closeNavAndAdmin">NFT Transactions</RouterLink>
 			<RouterLink class="dropdown-link" to="/manage-news" @click="closeNavAndAdmin">Manage News</RouterLink>
 			<RouterLink class="dropdown-link" to="/news-editor" @click="closeNavAndAdmin">News Editor</RouterLink>
 		</div>
