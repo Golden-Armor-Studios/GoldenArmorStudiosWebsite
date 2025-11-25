@@ -9,6 +9,7 @@ const crypto = require("node:crypto");
 admin.initializeApp();
 
 const STORAGE_BUCKET = "goldenarmorstudios.firebasestorage.app";
+const COLOR_IQ_BUNDLE_ID = "com.coloriqpro.goldenarmorstudio";
 const NEWS_STORAGE_PREFIX = "News";
 const storageBucket = admin.storage().bucket(STORAGE_BUCKET);
 
@@ -648,55 +649,30 @@ exports.helloWorld = functions.https.onRequest((request, response) => {
 	response.send("Hello from Firebase!");
 });
 
-exports.addDefaultGroup = functions.auth.user().onCreate(async (user) => {
+const resolveBundleId = (context) =>
+	context?.credential?.signInAttributes?.bundleId ||
+	context?.auth?.token?.firebase?.sign_in_attributes?.bundleId ||
+	null;
+
+const resolveProviderId = (context, user) =>
+	user?.providerData?.find?.((provider) => provider?.providerId)?.providerId ||
+	context?.credential?.providerId ||
+	context?.auth?.token?.firebase?.sign_in_provider ||
+	null;
+
+const isColorIqBundle = (bundleId) => bundleId === COLOR_IQ_BUNDLE_ID;
+const isGameCenterProvider = (providerId) =>
+	providerId === "gc.apple.com" || providerId === "apple.games" || providerId === "apple.com";
+
+exports.addDefaultGroup = functions.auth.user().onCreate(async (user, context) => {
+	const bundleId = resolveBundleId(context);
+	const providerId = resolveProviderId(context, user);
 	try {
-		await admin.auth().setCustomUserClaims(user.uid, {
-			groups: ["member"]
-		});
-		await admin.firestore()
-			.collection("users")
-			.doc(user.uid)
-			.set(
-				{
-					groups: ["member"],
-					email: user.email ?? null,
-					createdAt: admin.firestore.FieldValue.serverTimestamp()
-				},
-				{merge: true}
-			);
-		functions.logger.info(`Default group 'member' assigned to user ${user.uid}`);
-
-		if (user.email) {
-			const userName =
-				(user.displayName && user.displayName.trim())
-					? user.displayName.trim()
-					: (user.email.split("@")[0] || "there");
-			const messageHtml = [
-				"<p>Thanks for creating an account with Golden Armor Studio. You now have access to developer updates, experimental drops, and the on-chain work powering our games.</p>",
-				'<p><strong>Quick links:</strong></p>',
-				'<ul style="text-align:left; padding-left:20px;">',
-				'<li><a href="https://discord.gg/cTDGryK7" style="color:#4bd87a;">Join the dev & community hub</a></li>',
-				'<li><a href="https://goldenarmorstudio.art/buy-gasc" style="color:#4bd87a;">Purchase GASC (primary sale)</a></li>',
-				"</ul>",
-				"<p>Need help or have feedback? You can reply directly to this email and the team will get back to you.</p>"
-			].join("");
-
-			try {
-				await sendEmail(
-					{
-						to: user.email,
-						userName,
-						subject: "Welcome to Golden Armor Studio"
-					},
-					messageHtml
-				);
-			} catch (emailError) {
-				functions.logger.warn("Failed to send welcome email", {
-					uid: user.uid,
-					email: user.email,
-					error: emailError?.message || emailError
-				});
-			}
+		if (isGameCenterProvider(providerId)) {
+			await addColorIqUserRecord(user, providerId);
+		} else {
+			await addDefaultUserRecord(user, bundleId);
+			await sendDefaultWelcomeEmailIfNeeded(user);
 		}
 	} catch (error) {
 		functions.logger.error("Failed to assign default group", error);
@@ -704,7 +680,143 @@ exports.addDefaultGroup = functions.auth.user().onCreate(async (user) => {
 	}
 });
 
+async function addColorIqUserRecord(user, providerId) {
+	const db = admin.firestore();
+	await db.collection("GameUsers")
+		.doc(user.uid)
+		.set(
+			{
+				createdAt: admin.firestore.FieldValue.serverTimestamp(),
+				providerId: providerId
+			},
+			{merge: true}
+		);
+	functions.logger.info("ColorIQ default record created", {uid: user.uid});
+}
+
+async function addDefaultUserRecord(user, bundleId) {
+	await admin.auth().setCustomUserClaims(user.uid, {
+		groups: ["member"]
+	});
+	await admin.firestore()
+		.collection("users")
+		.doc(user.uid)
+		.set(
+			{
+				groups: ["member"],
+				email: user.email ?? null,
+				createdAt: admin.firestore.FieldValue.serverTimestamp(),
+				createdFromBundleId: bundleId
+			},
+			{merge: true}
+		);
+	functions.logger.info(`Default group 'member' assigned to user ${user.uid}`);
+}
+
+async function sendDefaultWelcomeEmailIfNeeded(user) {
+	if (!user.email) {
+		return;
+	}
+
+	const userName =
+		(user.displayName && user.displayName.trim())
+			? user.displayName.trim()
+			: (user.email.split("@")[0] || "there");
+	const messageHtml = [
+		"<p>Thanks for creating an account with Golden Armor Studio. You now have access to developer updates, experimental drops, and the on-chain work powering our games.</p>",
+		'<p><strong>Quick links:</strong></p>',
+		'<ul style=\"text-align:left; padding-left:20px;\">',
+		'<li><a href=\"https://discord.gg/cTDGryK7\" style=\"color:#4bd87a;\">Join the dev & community hub</a></li>',
+		'<li><a href=\"https://goldenarmorstudio.art/buy-gasc\" style=\"color:#4bd87a;\">Purchase GASC (primary sale)</a></li>',
+		"</ul>",
+		"<p>Need help or have feedback? You can reply directly to this email and the team will get back to you.</p>"
+	].join("");
+
+	try {
+		await sendEmail(
+			{
+				to: user.email,
+				userName,
+				subject: "Welcome to Golden Armor Studio"
+			},
+			messageHtml
+		);
+	} catch (emailError) {
+		functions.logger.warn("Failed to send default welcome email", {
+			uid: user.uid,
+			email: user.email,
+			error: emailError?.message || emailError
+		});
+	}
+}
+
 exports.syncUserGroups = functions.auth.user().beforeSignIn(async (user, context) => {
+	const bundleId = resolveBundleId(context);
+	const providerId = resolveProviderId(context, user);
+	if (isGameCenterProvider(providerId) || isColorIqBundle(bundleId)) {
+		return syncColorIqUser(user, context);
+	}
+	return syncDefaultUser(user, context);
+});
+
+async function syncColorIqUser(user, context) {
+	try {
+		const db = admin.firestore();
+		const userRef = db.collection("GameUsers").doc(user.uid);
+		const token = context?.auth?.token || {};
+		const providerName = token.name || null;
+		const providerPhoto = token.picture || null;
+
+		let userRecord = null;
+		try {
+			userRecord = await admin.auth().getUser(user.uid);
+		} catch (recordError) {
+			const isMissingUser =
+				recordError?.code === "auth/user-not-found" ||
+				recordError?.errorInfo?.code === "auth/user-not-found";
+			if (!isMissingUser) {
+				throw recordError;
+			}
+			functions.logger.info(
+				"ColorIQ DB: user record not found; continuing with payload data",
+				{uid: user.uid}
+			);
+		}
+
+		const userDoc = await userRef.get();
+		const docData = userDoc.exists ? userDoc.data() || {} : {};
+
+		const resolvedDisplayName =
+			providerName ||
+			user.displayName ||
+			userRecord?.displayName ||
+			docData.displayName ||
+			user.email ||
+			user.uid;
+
+		const resolvedPhoto =
+			providerPhoto ||
+			user.photoURL ||
+			userRecord?.photoURL ||
+			docData.photoURL ||
+			null;
+
+		const updatePayload = {
+			displayName: resolvedDisplayName,
+			photoURL: resolvedPhoto,
+			lastLogin: admin.firestore.FieldValue.serverTimestamp()
+		};
+
+		await userRef.set(updatePayload, {merge: true});
+		functions.logger.info("ColorIQ DB sync completed", {uid: user.uid});
+		return null;
+	} catch (error) {
+		functions.logger.error("ColorIQ DB sync failed", error);
+		throw error;
+	}
+}
+
+async function syncDefaultUser(user, context) {
 	try {
 		const userRef = admin.firestore().collection("users").doc(user.uid);
 		const userDoc = await userRef.get();
@@ -727,11 +839,25 @@ exports.syncUserGroups = functions.auth.user().beforeSignIn(async (user, context
 		const providerName = token.name || null;
 		const providerPhoto = token.picture || null;
 
-		const userRecord = await admin.auth().getUser(user.uid);
+		let userRecord = null;
+		try {
+			userRecord = await admin.auth().getUser(user.uid);
+		} catch (recordError) {
+			const isMissingUser =
+				recordError?.code === "auth/user-not-found" ||
+				recordError?.errorInfo?.code === "auth/user-not-found";
+			if (!isMissingUser) {
+				throw recordError;
+			}
+			functions.logger.info(
+				"User record not found during beforeSignIn; proceeding with payload data",
+				{uid: user.uid}
+			);
+		}
 		const resolvedDisplayName =
 			providerName ||
 			user.displayName ||
-			userRecord.displayName ||
+			userRecord?.displayName ||
 			docData.displayName ||
 			user.email ||
 			user.uid;
@@ -739,7 +865,7 @@ exports.syncUserGroups = functions.auth.user().beforeSignIn(async (user, context
 		const resolvedPhoto =
 			providerPhoto ||
 			user.photoURL ||
-			userRecord.photoURL ||
+			userRecord?.photoURL ||
 			docData.photoURL ||
 			null;
 
@@ -769,7 +895,7 @@ exports.syncUserGroups = functions.auth.user().beforeSignIn(async (user, context
 		functions.logger.error("Failed to process beforeSignIn trigger", error);
 		throw error;
 	}
-});
+}
 
 exports.generateCustomAuthToken = functions.https.onCall(async (_, context) => {
 	ensureAuthenticated(context);
